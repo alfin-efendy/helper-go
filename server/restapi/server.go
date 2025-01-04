@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/logger"
@@ -29,7 +28,6 @@ func init() {
 	Server.Use(
 		gin.Recovery(),
 		gzip.Gzip(gzip.DefaultCompression),
-		otelgin.Middleware(config.Config.App.Name),
 		RequestIDMiddleware(),
 		LoggerMiddleware(),
 		CORSMiddleware(),

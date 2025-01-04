@@ -16,7 +16,8 @@ func Load() {
 	v := viper.New()
 	v.AutomaticEnv()
 
-	v.SetConfigFile("config.yml")
+	v.SetConfigName("config")
+	v.AddConfigPath(".")
 
 	err := v.ReadInConfig()
 	if err != nil {
