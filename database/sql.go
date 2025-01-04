@@ -29,7 +29,7 @@ var (
 	}
 )
 
-func InitSql(ctx context.Context) {
+func initSql(ctx context.Context) {
 	config := config.Config.Database.Sql
 	logLevel := log.GetLevel()
 

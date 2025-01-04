@@ -14,7 +14,7 @@ import (
 
 var redisClient *redis.Client
 
-func InitRedis(ctx context.Context) {
+func initRedis(ctx context.Context) {
 	config := config.Config
 
 	switch config.Database.Redis.Mode {
