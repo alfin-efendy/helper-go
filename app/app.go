@@ -15,7 +15,8 @@ func init() {
 	database.Init()
 }
 
-func Start() {
+func Start(fn func()) {
+	fn()
 	go restapi.Run()
 
 	group := sync.WaitGroup{}
