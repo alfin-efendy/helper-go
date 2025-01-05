@@ -10,30 +10,33 @@ import (
 	"github.com/spf13/viper"
 )
 
-var Config *model.Config
+var (
+	Config      *model.Config
+	ViperConfig *viper.Viper
+)
 
 func Load() {
-	v := viper.New()
-	v.AutomaticEnv()
+	ViperConfig := viper.New()
+	ViperConfig.AutomaticEnv()
 
-	v.SetConfigName("config")
-	v.AddConfigPath(".")
+	ViperConfig.SetConfigName("config")
+	ViperConfig.AddConfigPath(".")
 
-	err := v.ReadInConfig()
+	err := ViperConfig.ReadInConfig()
 	if err != nil {
 		utility.PrintPanic(fmt.Sprintf("Error reading config file: %s\n", err))
 	}
 
-	for _, k := range v.AllKeys() {
-		value := v.GetString(k)
+	for _, k := range ViperConfig.AllKeys() {
+		value := ViperConfig.GetString(k)
 		if strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}") {
-			v.Set(k, os.Getenv(strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")))
+			ViperConfig.Set(k, os.Getenv(strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")))
 		}
 	}
 
 	Config = &model.Config{}
 
-	if err = v.Unmarshal(Config); err != nil {
+	if err = ViperConfig.Unmarshal(Config); err != nil {
 		utility.PrintPanic(fmt.Sprintf("Error reading config file: %s\n", err))
 	}
 }
