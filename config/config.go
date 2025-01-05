@@ -68,20 +68,20 @@ func getVal(key string, config map[string]interface{}) interface{} {
 
 // GetString use dot to get value from nested key
 // ex: sql.host
-func GetValue(key string) (string, error) {
+func GetValue(key string) string {
 	value := getVal(key, raw)
 	if value == nil {
-		return "", nil
+		return ""
 	}
 
 	switch v := value.(type) {
 	case string:
-		return v, nil
+		return v
 	case int:
-		return strconv.Itoa(v), nil
+		return strconv.Itoa(v)
 	case bool:
-		return strconv.FormatBool(v), nil
+		return strconv.FormatBool(v)
 	default:
-		return fmt.Sprintf("%v", v), nil
+		return fmt.Sprintf("%v", v)
 	}
 }

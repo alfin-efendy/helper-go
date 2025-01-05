@@ -9,8 +9,8 @@ import (
 func main() {
 	app.Start(func() {
 		// Your code here
-		email, _ := config.GetValue("superuser.email")
-		password, _ := config.GetValue("superuser.password")
+		email := config.GetValue("superuser.email")
+		password := config.GetValue("superuser.password")
 
 		println(email, password)
 	})
