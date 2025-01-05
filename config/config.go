@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/alfin-efendy/helper-go/config/model"
@@ -11,8 +12,8 @@ import (
 )
 
 var (
-	Config      *model.Config
-	ViperConfig *viper.Viper
+	Config *model.Config
+	raw    map[string]interface{}
 )
 
 func Load() {
@@ -38,5 +39,49 @@ func Load() {
 
 	if err = ViperConfig.Unmarshal(Config); err != nil {
 		utility.PrintPanic(fmt.Sprintf("Error reading config file: %s\n", err))
+	}
+
+	// store the raw config for later use
+	raw = ViperConfig.AllSettings()
+}
+
+func getVal(key string, config map[string]interface{}) interface{} {
+	if key == "" {
+		return nil
+	}
+
+	// split the key by dot
+	keys := strings.SplitN(key, ".", 2)
+
+	// if the key is not nested
+	if v, ok := config[keys[0]]; ok {
+		switch v := v.(type) {
+		// if the value is a map, then it's nested
+		case map[string]interface{}:
+			return getVal(keys[1], v)
+		default:
+			return v
+		}
+	}
+	return nil
+}
+
+// GetString use dot to get value from nested key
+// ex: sql.host
+func GetValue(key string) (string, error) {
+	value := getVal(key, raw)
+	if value == nil {
+		return "", nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		return v, nil
+	case int:
+		return strconv.Itoa(v), nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	default:
+		return fmt.Sprintf("%v", v), nil
 	}
 }
