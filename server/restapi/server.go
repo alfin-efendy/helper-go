@@ -40,26 +40,10 @@ func init() {
 		v.RegisterValidation("isActiveEmail", utility.IsActiveEmail)
 	}
 
-	redis := database.GetRedisClient()
-
-	AddChecker("redis", func(ctx context.Context) error {
-		if _, err := redis.Ping(ctx).Result(); err != nil {
-			return err
-		}
-		return nil
-	})
-
-	sqlClient := database.GetSqlClient()
-	dbsql, _ := sqlClient.DB()
-
-	AddChecker("sql", func(ctx context.Context) error {
-		return dbsql.Ping()
-	})
-
 	Server.GET("/_health", gin.WrapH(healthz()))
 }
 
-func AddChecker(name string, f func(ctx context.Context) error) {
+func addChecker(name string, f func(ctx context.Context) error) {
 	options = append(
 		options,
 		healthcheck.WithChecker(
@@ -86,6 +70,22 @@ func Run() {
 		logger.Warn(ctx, "REST API is disabled")
 		return
 	}
+
+	redis := database.GetRedisClient()
+
+	addChecker("redis", func(ctx context.Context) error {
+		if _, err := redis.Ping(ctx).Result(); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	sqlClient := database.GetSqlClient()
+	dbsql, _ := sqlClient.DB()
+
+	addChecker("sql", func(ctx context.Context) error {
+		return dbsql.Ping()
+	})
 
 	port := config.Config.Server.RestAPI.Port
 
