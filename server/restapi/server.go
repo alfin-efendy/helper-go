@@ -13,6 +13,7 @@ import (
 	"github.com/go-playground/validator/v10"
 
 	"github.com/alfin-efendy/helper-go/config"
+	"github.com/alfin-efendy/helper-go/database"
 	"github.com/alfin-efendy/helper-go/logger"
 	"github.com/alfin-efendy/helper-go/utility"
 )
@@ -38,6 +39,22 @@ func init() {
 		v.RegisterValidation("isUrl", utility.IsUrl)
 		v.RegisterValidation("isActiveEmail", utility.IsActiveEmail)
 	}
+
+	redis := database.GetRedisClient()
+
+	AddChecker("redis", func(ctx context.Context) error {
+		if _, err := redis.Ping(ctx).Result(); err != nil {
+			return err
+		}
+		return nil
+	})
+
+	sqlClient := database.GetSqlClient()
+	dbsql, _ := sqlClient.DB()
+
+	AddChecker("sql", func(ctx context.Context) error {
+		return dbsql.Ping()
+	})
 
 	Server.GET("/_health", gin.WrapH(healthz()))
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/config/model"
 	"github.com/alfin-efendy/helper-go/logger"
-	"github.com/alfin-efendy/helper-go/server/restapi"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -28,13 +27,6 @@ func initRedis(ctx context.Context) {
 	}
 
 	logger.Info(ctx, "✅ Redis client connected")
-
-	restapi.AddChecker("redis", func(ctx context.Context) error {
-		if _, err := redisClient.Ping(ctx).Result(); err != nil {
-			return err
-		}
-		return nil
-	})
 }
 
 func initSingleMode(ctx context.Context, config *model.Config) *redis.Client {

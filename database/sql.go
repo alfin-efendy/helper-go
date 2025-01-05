@@ -8,7 +8,6 @@ import (
 
 	"github.com/alfin-efendy/helper-go/config"
 	log "github.com/alfin-efendy/helper-go/logger"
-	"github.com/alfin-efendy/helper-go/server/restapi"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -83,10 +82,6 @@ func initSql(ctx context.Context) {
 	dbSql.SetMaxOpenConns(config.PoolingConnection.MaxOpen)
 	dbSql.SetConnMaxLifetime(time.Duration(config.PoolingConnection.MaxLifetime) * time.Second)
 	db.Config.NamingStrategy = schema.NamingStrategy{}
-
-	restapi.AddChecker("sql", func(ctx context.Context) error {
-		return dbSql.Ping()
-	})
 
 	sqlClient = db
 }

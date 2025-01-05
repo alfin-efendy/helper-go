@@ -1,11 +1,14 @@
 package restapi
 
 import (
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/logger"
+	"github.com/alfin-efendy/helper-go/token"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -93,6 +96,57 @@ func HelmetMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("Cache-control", "no-store")
 		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'")
 		c.Writer.Header().Set("Permissions-Policy", "geolocation=(), midi=(), notifications=(), push=(), sync-xhr=(), microphone=(), camera=(), magnetometer=(), gyroscope=(), speaker=(), vibrate=(), fullscreen=(self), payment=()")
+		c.Next()
+	}
+}
+
+// AuthMiddleware is a middleware function that checks if the request is authorized.
+func AuthMiddleware(permission string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accessToken, err := c.Cookie("access_token")
+
+		if err != nil {
+			// Get authorization header
+			authorization := c.GetHeader("Authorization")
+
+			// Check authorization header
+			if !strings.HasPrefix(authorization, "Bearer ") {
+				APIResponse(c, "Need Bearer Authorization", http.StatusUnauthorized, nil)
+				return
+			}
+
+			// Get access token
+			accessToken = strings.TrimPrefix(authorization, "Bearer ")
+		}
+
+		dataAccess, err := token.TokenValidation(c, accessToken, "access", true)
+
+		if err != nil {
+			APIResponse(c, "Unauthorized", http.StatusUnauthorized, nil)
+			return
+		}
+
+		// Check if token has the required permission
+		if permission != "" {
+			// Check if the Audience has the required permission
+			ability := dataAccess.Audience
+			hasPermission := false
+
+			for _, v := range ability {
+				if v == permission {
+					hasPermission = true
+					break
+				}
+			}
+
+			if !hasPermission {
+				APIResponse(c, "Forbidden", http.StatusForbidden, nil)
+				return
+			}
+		}
+
+		c.Set("issuer", dataAccess.Issuer)
+		c.Set("subject", dataAccess.Subject)
 		c.Next()
 	}
 }
