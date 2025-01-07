@@ -5,9 +5,10 @@ type server struct {
 }
 
 type restAPI struct {
-	Port   int   `mapstructure:"port"`
-	Stdout bool  `mapstructure:"stdout"`
-	Cors   *cors `mapstructure:"cors"`
+	Host   string `mapstructure:"host"`
+	Port   int    `mapstructure:"port"`
+	Stdout bool   `mapstructure:"stdout"`
+	Cors   *cors  `mapstructure:"cors"`
 }
 
 type cors struct {

@@ -56,3 +56,16 @@ var IsActiveEmail validator.Func = func(fl validator.FieldLevel) bool {
 
 	return true
 }
+
+func EnumValidator(fl validator.FieldLevel) bool {
+	param := fl.Param()
+	values := strings.Split(param, "|")
+	fieldValue := fl.Field().String()
+
+	for _, value := range values {
+		if fieldValue == value {
+			return true
+		}
+	}
+	return false
+}

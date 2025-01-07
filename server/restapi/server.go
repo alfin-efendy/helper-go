@@ -38,6 +38,7 @@ func init() {
 	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
 		v.RegisterValidation("isUrl", utility.IsUrl)
 		v.RegisterValidation("isActiveEmail", utility.IsActiveEmail)
+		v.RegisterValidation("enum", utility.EnumValidator)
 	}
 
 	Server.GET("/_health", gin.WrapH(healthz()))
@@ -87,9 +88,10 @@ func Run() {
 		return dbsql.Ping()
 	})
 
+	host := config.Config.Server.RestAPI.Host
 	port := config.Config.Server.RestAPI.Port
 
-	err := Server.Run(fmt.Sprintf("%s:%d", "0.0.0.0", port))
+	err := Server.Run(fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
 		logger.Fatal(ctx, err, "Failed to run REST server, port=%d", port)
 	}
