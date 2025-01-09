@@ -16,22 +16,22 @@ import (
 
 // RequestIDMiddleware generates a unique request ID and sets it in the response header.
 // It is a middleware function for Gin framework.
-func RequestIDMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("X-Request-Id", uuid.New().String())
-		c.Next()
+func requestIDMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		ctx.Writer.Header().Set("X-Request-Id", uuid.New().String())
+		ctx.Next()
 	}
 }
 
 // LoggerMiddleware logs the request and response details.
 // It is a middleware function for Gin framework.
-func LoggerMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
+func loggerMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
 		// Start timer
 		start := time.Now()
 
 		// Process request
-		c.Next()
+		ctx.Next()
 
 		// Stop timer
 		end := time.Now()
@@ -39,12 +39,12 @@ func LoggerMiddleware() gin.HandlerFunc {
 
 		// Log details
 		logger.Info(
-			c.Request.Context(),
+			ctx.Request.Context(),
 			"Request",
 			logrus.Fields{
-				"method":  c.Request.Method,
-				"path":    c.Request.URL.Path,
-				"status":  c.Writer.Status(),
+				"method":  ctx.Request.Method,
+				"path":    ctx.Request.URL.Path,
+				"status":  ctx.Writer.Status(),
 				"latency": latency.String(),
 			},
 		)
@@ -53,65 +53,66 @@ func LoggerMiddleware() gin.HandlerFunc {
 
 // CORSMiddleware adds CORS headers to the response.
 // It is a middleware function for Gin framework.
-func CORSMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
+func corsMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
 		if config.Config.Server.RestAPI.Cors == nil {
-			c.Next()
+			ctx.Next()
 		}
 
 		config := config.Config.Server.RestAPI.Cors
 		for _, origin := range config.AllowOrigins {
-			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			ctx.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 		for _, method := range config.AllowMethods {
-			c.Writer.Header().Set("Access-Control-Allow-Methods", method)
+			ctx.Writer.Header().Set("Access-Control-Allow-Methods", method)
 		}
 		for _, header := range config.AllowHeaders {
-			c.Writer.Header().Set("Access-Control-Allow-Headers", header)
+			ctx.Writer.Header().Set("Access-Control-Allow-Headers", header)
 		}
 		for _, exposeHeaders := range config.ExposeHeaders {
-			c.Writer.Header().Set("Access-Control-Expose-Headers", exposeHeaders)
+			ctx.Writer.Header().Set("Access-Control-Expose-Headers", exposeHeaders)
 		}
-		c.Writer.Header().Set("Access-Control-Max-Age", strconv.Itoa(config.MaxAge))
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", strconv.FormatBool(config.AllowCredentials))
+		ctx.Writer.Header().Set("Access-Control-Max-Age", strconv.Itoa(config.MaxAge))
+		ctx.Writer.Header().Set("Access-Control-Allow-Credentials", strconv.FormatBool(config.AllowCredentials))
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+		if ctx.Request.Method == "OPTIONS" {
+			ctx.AbortWithStatus(204)
 			return
 		}
 
-		c.Next()
+		ctx.Next()
 	}
 }
 
 // HelmetMiddleware adds security headers to the response.
-func HelmetMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
-		c.Writer.Header().Set("X-Frame-Options", "DENY always")
-		c.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
-		c.Writer.Header().Set("X-DNS-Prefetch-Control", "off")
-		c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-		c.Writer.Header().Set("Referrer-Policy", "no-referrer")
-		c.Writer.Header().Set("Cache-control", "no-store")
-		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'")
-		c.Writer.Header().Set("Permissions-Policy", "geolocation=(), midi=(), notifications=(), push=(), sync-xhr=(), microphone=(), camera=(), magnetometer=(), gyroscope=(), speaker=(), vibrate=(), fullscreen=(self), payment=()")
-		c.Next()
+func helmetMiddleware() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		ctx.Writer.Header().Set("X-Content-Type-Options", "nosniff")
+		ctx.Writer.Header().Set("X-Frame-Options", "DENY always")
+		ctx.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
+		ctx.Writer.Header().Set("X-DNS-Prefetch-Control", "off")
+		ctx.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		ctx.Writer.Header().Set("Referrer-Policy", "no-referrer")
+		ctx.Writer.Header().Set("Cache-control", "no-store")
+		ctx.Writer.Header().Set("Content-Security-Policy", "default-src 'self'")
+		ctx.Writer.Header().Set("Permissions-Policy", "geolocation=(), midi=(), notifications=(), push=(), sync-xhr=(), microphone=(), camera=(), magnetometer=(), gyroscope=(), speaker=(), vibrate=(), fullscreen=(self), payment=()")
+		ctx.Next()
 	}
 }
 
 // AuthMiddleware is a middleware function that checks if the request is authorized.
 func AuthMiddleware(permission string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		accessToken, err := c.Cookie("access_token")
+	return func(ctx *gin.Context) {
+		accessToken, err := ctx.Cookie("access_token")
 
 		if err != nil {
 			// Get authorization header
-			authorization := c.GetHeader("Authorization")
+			authorization := ctx.GetHeader("Authorization")
 
 			// Check authorization header
 			if !strings.HasPrefix(authorization, "Bearer ") {
-				APIResponse(c, "Need Bearer Authorization", http.StatusUnauthorized, nil)
+				ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Unauthorized"})
+				ctx.Abort()
 				return
 			}
 
@@ -119,10 +120,11 @@ func AuthMiddleware(permission string) gin.HandlerFunc {
 			accessToken = strings.TrimPrefix(authorization, "Bearer ")
 		}
 
-		dataAccess, err := token.TokenValidation(c, accessToken, "access", true)
+		dataAccess, err := token.TokenValidation(ctx, accessToken, "access", true)
 
 		if err != nil {
-			APIResponse(c, "Unauthorized", http.StatusUnauthorized, nil)
+			ctx.JSON(http.StatusUnauthorized, gin.H{"message": "Unauthorized"})
+			ctx.Abort()
 			return
 		}
 
@@ -140,13 +142,14 @@ func AuthMiddleware(permission string) gin.HandlerFunc {
 			}
 
 			if !hasPermission {
-				APIResponse(c, "Forbidden", http.StatusForbidden, nil)
+				ctx.JSON(http.StatusForbidden, gin.H{"message": "Access Denied"})
+				ctx.Abort()
 				return
 			}
 		}
 
-		c.Set("issuer", dataAccess.Issuer)
-		c.Set("subject", dataAccess.Subject)
-		c.Next()
+		ctx.Set("issuer", dataAccess.Issuer)
+		ctx.Set("subject", dataAccess.Subject)
+		ctx.Next()
 	}
 }

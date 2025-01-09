@@ -15,7 +15,6 @@ import (
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/database"
 	"github.com/alfin-efendy/helper-go/logger"
-	"github.com/alfin-efendy/helper-go/utility"
 )
 
 var (
@@ -29,16 +28,19 @@ func init() {
 	Server.Use(
 		gin.Recovery(),
 		gzip.Gzip(gzip.DefaultCompression),
-		RequestIDMiddleware(),
-		LoggerMiddleware(),
-		CORSMiddleware(),
-		HelmetMiddleware(),
+		requestIDMiddleware(),
+		loggerMiddleware(),
+		corsMiddleware(),
+		helmetMiddleware(),
+		paginationRequest(),
+		errorResponse(),
+		successResponse(),
 	)
 
 	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
-		v.RegisterValidation("isUrl", utility.IsUrl)
-		v.RegisterValidation("isActiveEmail", utility.IsActiveEmail)
-		v.RegisterValidation("enum", utility.EnumValidator)
+		v.RegisterValidation("isUrl", isUrl)
+		v.RegisterValidation("isActiveEmail", isActiveEmail)
+		_ = v.RegisterValidation("enum", enum)
 	}
 
 	Server.GET("/_health", gin.WrapH(healthz()))

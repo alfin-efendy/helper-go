@@ -1,4 +1,4 @@
-package utility
+package restapi
 
 import (
 	"net"
@@ -9,7 +9,7 @@ import (
 	"github.com/truemail-rb/truemail-go"
 )
 
-var IsUrl validator.Func = func(fl validator.FieldLevel) bool {
+var isUrl validator.Func = func(fl validator.FieldLevel) bool {
 	data, ok := fl.Field().Interface().(string)
 	// remove www. from the url and trim the space
 	data = strings.TrimSpace(strings.ToLower(strings.Replace(data, "www.", "", 1)))
@@ -32,7 +32,7 @@ var IsUrl validator.Func = func(fl validator.FieldLevel) bool {
 	return true
 }
 
-var IsActiveEmail validator.Func = func(fl validator.FieldLevel) bool {
+var isActiveEmail validator.Func = func(fl validator.FieldLevel) bool {
 	data, ok := fl.Field().Interface().(string)
 
 	if ok {
@@ -57,15 +57,25 @@ var IsActiveEmail validator.Func = func(fl validator.FieldLevel) bool {
 	return true
 }
 
-func EnumValidator(fl validator.FieldLevel) bool {
-	param := fl.Param()
-	values := strings.Split(param, "|")
-	fieldValue := fl.Field().String()
+func enum(fl validator.FieldLevel) bool {
+	// Dapatkan nilai yang akan divalidasi
+	value := fl.Field().String()
+	if value == "" {
+		return false
+	}
 
-	for _, value := range values {
-		if fieldValue == value {
+	// Dapatkan parameter enum dari tag (employee|customer|vendor)
+	enumValues := strings.Split(fl.Param(), "/")
+	if len(enumValues) == 0 {
+		return false
+	}
+
+	// Cek apakah nilai ada dalam daftar valid
+	for _, v := range enumValues {
+		if value == strings.TrimSpace(v) {
 			return true
 		}
 	}
+
 	return false
 }
