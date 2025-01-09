@@ -106,6 +106,13 @@ func errorResponse() gin.HandlerFunc {
 				return
 			}
 
+			if err.Error() == "EOF" {
+				response.Message = "Bad Request"
+				c.JSON(http.StatusBadRequest, response)
+				c.Abort()
+				return
+			}
+
 			c.JSON(http.StatusInternalServerError, response)
 			c.Abort()
 			return
