@@ -18,7 +18,7 @@ type CommonError struct {
 type PageRequest struct {
 	Page     int    `form:"page"`
 	PageSize int    `form:"pageSize"`
-	Search   string `form:"Search"`
+	Search   string `form:"search"`
 }
 
 type PageResponse struct {
