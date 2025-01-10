@@ -7,6 +7,7 @@ import (
 
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/logger"
+	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/lifecycle"
@@ -89,7 +90,7 @@ func UploadFileToMinio(ctx context.Context, file *multipart.FileHeader, path str
 	}
 	defer src.Close()
 
-	objectName := path + "/" + file.Filename
+	objectName := path + "/" + uuid.NewString() + "-" + file.Filename
 	objectOptions := minio.PutObjectOptions{
 		ContentType: file.Header.Get("Content-Type"),
 	}
