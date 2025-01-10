@@ -17,7 +17,7 @@ var minioClient *minio.Client
 func initMinino() {
 	config := config.Config.Storage
 
-	if config == nil && config.Driver != "minio" {
+	if config == nil || *config.Driver != "minio" {
 		return
 	}
 
