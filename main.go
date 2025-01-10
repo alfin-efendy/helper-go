@@ -5,6 +5,7 @@ import (
 
 	"github.com/alfin-efendy/helper-go/app"
 	"github.com/alfin-efendy/helper-go/config"
+	"github.com/alfin-efendy/helper-go/server"
 	"github.com/alfin-efendy/helper-go/server/restapi"
 	"github.com/gin-gonic/gin"
 )
@@ -53,7 +54,7 @@ func CreateUserHandler(c *gin.Context) {
 
 	// Set data untuk success response
 	restapi.SetData(c, user)
-	restapi.SetPaggination(c, restapi.PageResponse{
+	restapi.SetPaggination(c, server.PageResponse{
 		TotalPage:   pagination.PageSize,
 		TotalRecord: int64(pagination.Page),
 	})

@@ -7,12 +7,14 @@ import (
 	"github.com/alfin-efendy/helper-go/database"
 	"github.com/alfin-efendy/helper-go/logger"
 	"github.com/alfin-efendy/helper-go/server/restapi"
+	"github.com/alfin-efendy/helper-go/storage"
 )
 
 func init() {
 	config.Load()
 	logger.Init()
 	database.Init()
+	storage.Init()
 }
 
 func Start(fn func()) {

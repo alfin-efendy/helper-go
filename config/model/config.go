@@ -7,4 +7,5 @@ type Config struct {
 	Otel     otel     `mapstructure:"otel"`
 	Server   server   `mapstructure:"server"`
 	Token    *token   `mapstructure:"token"`
+	Storage  *storage `mapstructure:"storage"`
 }

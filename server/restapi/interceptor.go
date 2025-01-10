@@ -4,28 +4,20 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/alfin-efendy/helper-go/server"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"gorm.io/gorm"
 )
 
-// ValidationError for error response format
-type ValidationError struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
-}
-
-// Response is a struct for standard response format
-type Response struct {
-	Message string        `json:"message"`
-	Errors  interface{}   `json:"errors,omitempty"`
-	Data    interface{}   `json:"data,omitempty"`
-	Page    *PageResponse `json:"page,omitempty"`
-}
+var (
+	dataStr string = "data"
+	pageStr string = "page"
+)
 
 func paginationRequest() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var page PageRequest
+		var page server.PageRequest
 
 		if err := c.ShouldBindQuery(&page); err != nil {
 			c.Error(err)
@@ -60,7 +52,7 @@ func errorResponse() gin.HandlerFunc {
 
 			// Handle validation errors
 			if validationErrors, ok := err.(validator.ValidationErrors); ok {
-				var errors []ValidationError
+				var errors []server.ValidationError
 
 				for _, e := range validationErrors {
 					var message string
@@ -78,13 +70,13 @@ func errorResponse() gin.HandlerFunc {
 						message = field + " is not valid"
 					}
 
-					errors = append(errors, ValidationError{
+					errors = append(errors, server.ValidationError{
 						Field:   field,
 						Message: message,
 					})
 				}
 
-				response := Response{
+				response := server.Response{
 					Message: "Validation failed",
 					Errors:  errors,
 				}
@@ -95,7 +87,7 @@ func errorResponse() gin.HandlerFunc {
 			}
 
 			// Handle general errors
-			response := Response{
+			response := server.Response{
 				Message: "Internal Server Error",
 			}
 
@@ -127,7 +119,7 @@ func successResponse() gin.HandlerFunc {
 
 		// If there are no errors and response has not been sent
 		if len(c.Errors) == 0 && !c.Writer.Written() {
-			response := Response{
+			response := server.Response{
 				Message: "Success",
 			}
 
@@ -136,7 +128,7 @@ func successResponse() gin.HandlerFunc {
 			}
 
 			if page, exists := c.Get(pageStr); exists {
-				if pageResponse, ok := page.(PageResponse); ok {
+				if pageResponse, ok := page.(server.PageResponse); ok {
 					response.Page = &pageResponse
 				}
 			}
