@@ -1,6 +1,6 @@
 package model
 
-type otel struct {
+type Otel struct {
 	Trace  *otelTrace  `mapstructure:"trace"`
 	Metric *otelMetric `mapstructure:"metric"`
 }
@@ -15,11 +15,11 @@ type otelMetric struct {
 }
 
 type otelExporters struct {
-	Otlp   *otelExportersOtlp `mapstructure:"otlp"`
+	Otlp   *OtelExportersOtlp `mapstructure:"otlp"`
 	Enable bool               `mapstructure:"enable"`
 }
 
-type otelExportersOtlp struct {
+type OtelExportersOtlp struct {
 	Address                     string `mapstructure:"address"`
 	Timeout                     int    `mapstructure:"timeout"`
 	ClientMaxReceiveMessageSize string `mapstructure:"clientMaxReceiveMessageSize"`

@@ -6,6 +6,7 @@ import (
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/database"
 	"github.com/alfin-efendy/helper-go/logger"
+	"github.com/alfin-efendy/helper-go/otel"
 	"github.com/alfin-efendy/helper-go/server/restapi"
 	"github.com/alfin-efendy/helper-go/storage"
 )
@@ -13,6 +14,7 @@ import (
 func init() {
 	config.Load()
 	logger.Init()
+	otel.Init()
 	database.Init()
 	storage.Init()
 }
