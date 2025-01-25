@@ -10,18 +10,8 @@ import (
 	"github.com/alfin-efendy/helper-go/logger"
 	"github.com/alfin-efendy/helper-go/token"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap/zapcore"
 )
-
-// RequestIDMiddleware generates a unique request ID and sets it in the response header.
-// It is a middleware function for Gin framework.
-func requestIDMiddleware() gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		ctx.Writer.Header().Set("X-Request-Id", uuid.New().String())
-		ctx.Next()
-	}
-}
 
 // LoggerMiddleware logs the request and response details.
 // It is a middleware function for Gin framework.
@@ -41,12 +31,13 @@ func loggerMiddleware() gin.HandlerFunc {
 		logger.Info(
 			ctx.Request.Context(),
 			"Request",
-			logrus.Fields{
-				"method":  ctx.Request.Method,
-				"path":    ctx.Request.URL.Path,
-				"status":  ctx.Writer.Status(),
-				"latency": latency.String(),
-			},
+			zapcore.Field{Key: "Method", Type: zapcore.StringType, String: ctx.Request.Method},
+			zapcore.Field{Key: "Path", Type: zapcore.StringType, String: ctx.Request.URL.Path},
+			zapcore.Field{Key: "Query", Type: zapcore.StringType, String: ctx.Request.URL.RawQuery},
+			zapcore.Field{Key: "Status", Type: zapcore.Int64Type, Integer: int64(ctx.Writer.Status())},
+			zapcore.Field{Key: "Latency", Type: zapcore.StringType, String: latency.String()},
+			zapcore.Field{Key: "ClientIP", Type: zapcore.StringType, String: ctx.ClientIP()},
+			zapcore.Field{Key: "UserAgent", Type: zapcore.StringType, String: ctx.GetHeader("User-Agent")},
 		)
 	}
 }

@@ -8,7 +8,7 @@ import (
 
 	"github.com/alfin-efendy/helper-go/config"
 	log "github.com/alfin-efendy/helper-go/logger"
-	"github.com/sirupsen/logrus"
+	"go.uber.org/zap/zapcore"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -16,15 +16,14 @@ import (
 )
 
 var (
-	sqlClient      *gorm.DB
-	logrusLevelMap = map[logrus.Level]logger.LogLevel{
-		logrus.PanicLevel: logger.Error,
-		logrus.FatalLevel: logger.Error,
-		logrus.ErrorLevel: logger.Error,
-		logrus.WarnLevel:  logger.Warn,
-		logrus.InfoLevel:  logger.Warn,
-		logrus.DebugLevel: logger.Info,
-		logrus.TraceLevel: logger.Info,
+	sqlClient   *gorm.DB
+	zapLevelMap = map[zapcore.Level]logger.LogLevel{
+		zapcore.PanicLevel: logger.Error,
+		zapcore.FatalLevel: logger.Error,
+		zapcore.ErrorLevel: logger.Error,
+		zapcore.WarnLevel:  logger.Warn,
+		zapcore.InfoLevel:  logger.Warn,
+		zapcore.DebugLevel: logger.Info,
 	}
 )
 
@@ -45,14 +44,16 @@ func initSql(ctx context.Context) {
 
 	loggerConfig := logger.Config{
 		SlowThreshold:             3 * time.Second,
-		LogLevel:                  logrusLevelMap[logLevel],
+		LogLevel:                  zapLevelMap[logLevel],
 		Colorful:                  true,
 		IgnoreRecordNotFoundError: true,
 	}
 
+	logging := log.NewLogger(log.GetZapLogger())
+
 	db, err := gorm.Open(dialector, &gorm.Config{
 		SkipDefaultTransaction: true,
-		Logger:                 logger.New(log.GetLogrusLogger(), loggerConfig),
+		Logger:                 logger.New(logging, loggerConfig),
 		NamingStrategy: schema.NamingStrategy{
 			SingularTable: true,
 			NameReplacer:  strings.NewReplacer("-", "_", " ", "_"),

@@ -26,9 +26,9 @@ func init() {
 	Server = gin.Default()
 
 	Server.Use(
+		traceRequest(),
 		gin.Recovery(),
 		gzip.Gzip(gzip.DefaultCompression),
-		requestIDMiddleware(),
 		loggerMiddleware(),
 		corsMiddleware(),
 		helmetMiddleware(),
@@ -95,6 +95,6 @@ func Run() {
 
 	err := Server.Run(fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
-		logger.Fatal(ctx, err, "Failed to run REST server, port=%d", port)
+		logger.Fatal(ctx, err, fmt.Sprintf("Failed to run REST server, port=%d", port))
 	}
 }

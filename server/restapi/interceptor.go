@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/alfin-efendy/helper-go/otel"
 	"github.com/alfin-efendy/helper-go/server"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
@@ -14,6 +15,19 @@ var (
 	dataStr string = "data"
 	pageStr string = "page"
 )
+
+func traceRequest() gin.HandlerFunc {
+	tracer := otel.GetTracer()
+
+	return func(c *gin.Context) {
+		ctx, span := tracer.Start(c.Request.Context(), c.Request.URL.Path)
+		defer span.End()
+
+		c.Request = c.Request.WithContext(ctx)
+		c.Writer.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
+		c.Next()
+	}
+}
 
 func paginationRequest() gin.HandlerFunc {
 	return func(c *gin.Context) {

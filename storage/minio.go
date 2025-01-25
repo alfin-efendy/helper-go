@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"mime/multipart"
 
@@ -45,7 +46,7 @@ func initMinino() {
 			logger.Fatal(ctx, err)
 		}
 
-		logger.Info(ctx, "Bucket %s created successfully", config.BucketName)
+		logger.Info(ctx, fmt.Sprintf("Bucket %s created successfully", config.BucketName))
 	}
 
 	// Set lifecycle policy for the bucket

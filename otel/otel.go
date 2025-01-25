@@ -23,11 +23,12 @@ import (
 )
 
 var (
-	tracer    trace.Tracer
-	meter     metric.Meter
-	counters  map[string]metric.Int64Counter
-	configs   *model.Config
-	isEnabled bool
+	tracer      trace.Tracer
+	meter       metric.Meter
+	counters    map[string]metric.Int64Counter
+	configs     *model.Config
+	isEnabled   bool
+	serviceName string
 )
 
 type SpanWrapper struct {
@@ -46,10 +47,14 @@ func Init() {
 	}
 
 	// set global propagator to tracecontext (the default is no-op).
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{}, propagation.Baggage{}))
+	otel.SetTextMapPropagator(
+		propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		),
+	)
 
-	serviceName := configs.App.Name
+	serviceName = configs.App.Name
 	res, err := resource.New(ctx,
 		resource.WithFromEnv(),
 		resource.WithProcess(),
@@ -66,29 +71,12 @@ func Init() {
 	}
 
 	if configs.Otel.Trace.Exporters.Enable {
-		var spanExporter sdktrace.SpanExporter
-
-		conn, cancel, err := initGrpcConn(ctx, configs.Otel.Trace.Exporters.Otlp)
+		// Initialize trace provider
+		err = initTracerProvider(ctx, res)
 		if err != nil {
-			logger.Fatal(ctx, err, "Failed to initialize OpenTelemetry trace exporter")
+			logger.Fatal(ctx, err, "Failed to initialize OpenTelemetry trace provider")
 			return
 		}
-		defer cancel()
-
-		spanExporter, err = otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
-		if err != nil {
-			logger.Fatal(ctx, err, "Failed to create OpenTelemetry trace exporter")
-			return
-		}
-
-		// Create a batch span processor
-		bsp := sdktrace.NewBatchSpanProcessor(spanExporter)
-		tracerProvider := sdktrace.NewTracerProvider(
-			sdktrace.WithSampler(sdktrace.AlwaysSample()),
-			sdktrace.WithResource(res),
-			sdktrace.WithSpanProcessor(bsp),
-		)
-		otel.SetTracerProvider(tracerProvider)
 	}
 
 	if configs.Otel.Metric.Exporters.Enable {
@@ -112,7 +100,7 @@ func Init() {
 	}
 
 	// Set default tracer
-	tracer = otel.Tracer(serviceName + "-tracer")
+	tracer = otel.Tracer(serviceName)
 
 	// Set default meter
 	meter = otel.Meter(configs.Otel.Metric.InstrumentationName)
@@ -146,6 +134,39 @@ func initGrpcConn(ctx context.Context, exporterConfig *model.OtelExportersOtlp) 
 	return conn, cancel, err
 }
 
+func initTracerProvider(ctx context.Context, res *resource.Resource) error {
+	conf := configs.Otel.Trace.Exporters.Otlp
+
+	conn, err := grpc.NewClient(
+		conf.Address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		logger.Fatal(ctx, err, "Failed to create gRPC connection")
+		return err
+	}
+
+	exporter, err := otlptracegrpc.New(
+		ctx,
+		otlptracegrpc.WithGRPCConn(conn),
+		otlptracegrpc.WithTimeout(time.Duration(conf.Timeout)*time.Second),
+	)
+	if err != nil {
+		logger.Fatal(ctx, err, "Failed to create trace exporter")
+		return err
+	}
+
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+
+	otel.SetTracerProvider(tracerProvider)
+
+	return nil
+}
+
 func Trace(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, *SpanWrapper) {
 	// Get parent span if any
 	sc := trace.SpanContextFromContext(ctx)
@@ -171,4 +192,8 @@ func AddCounter(_ context.Context, counterName string, unit string) error {
 
 func Count(ctx context.Context, counterName string, incr int64, opts ...metric.AddOption) {
 	counters[counterName].Add(ctx, incr, opts...)
+}
+
+func GetTracer() trace.Tracer {
+	return otel.Tracer(serviceName)
 }

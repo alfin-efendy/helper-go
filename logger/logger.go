@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"time"
 
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/utility"
-	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
 	loggerInstance Logger
-	level          logrus.Level
+	level          zapcore.Level
 )
 
 const (
@@ -29,39 +29,25 @@ const (
 )
 
 type Logger interface {
-	GetLevel() logrus.Level
-	GetLogrusLogger() logrus.Ext1FieldLogger
-	Info(ctx context.Context, args ...interface{})
-	Warn(ctx context.Context, args ...interface{})
-	Error(ctx context.Context, err error, args ...interface{})
-	Fatal(ctx context.Context, err error, args ...interface{})
-	Panic(ctx context.Context, err error, args ...interface{})
+	GetLevel() zapcore.Level
+	GetZapLogger() *zap.Logger
+	Printf(format string, v ...interface{})
+	Info(ctx context.Context, msg string, fields ...zap.Field)
+	Warn(ctx context.Context, msg string, fields ...zap.Field)
+	Error(ctx context.Context, err error, msg string)
+	Fatal(ctx context.Context, err error, msg string)
+	Panic(ctx context.Context, err error, msg string)
 }
 
 type logger struct {
-	log logrus.Ext1FieldLogger
+	log *zap.Logger
 }
 
-func NewLogger(log logrus.Ext1FieldLogger) Logger {
+func NewLogger(log *zap.Logger) Logger {
 	return &logger{log: log}
 }
 
 func Init() {
-	standardLogger := logrus.StandardLogger()
-
-	var err error
-	level, err = logrus.ParseLevel(config.Config.Log.Level)
-	if err != nil {
-		standardLogger.SetLevel(logrus.InfoLevel)
-	} else {
-		standardLogger.SetLevel(level)
-	}
-
-	standardLogger.SetFormatter(&logrus.JSONFormatter{
-		PrettyPrint:     true,
-		TimestampFormat: time.RFC3339,
-	})
-
 	var location string
 	if config.Config.Log.Location != nil {
 		location = *config.Config.Log.Location
@@ -71,32 +57,65 @@ func Init() {
 
 	os.MkdirAll(location, os.ModePerm)
 
-	standardLogger.SetOutput(&lumberjack.Logger{
+	// Set retention policy for logs
+	fileWriter := &lumberjack.Logger{
 		Filename:   location,
 		MaxSize:    config.Config.Log.MaxSize,
 		MaxAge:     config.Config.Log.MaxAge,
 		MaxBackups: config.Config.Log.MaxBackups,
 		Compress:   config.Config.Log.Compress,
-	})
+	}
 
-	loggerInstance = &logger{log: standardLogger}
+	// Build log configuration
+	zapConfig := zapcore.EncoderConfig{
+		TimeKey:        "timestamp",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		MessageKey:     "message",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+
+	// Set log level
+	err := level.UnmarshalText([]byte(config.Config.Log.Level))
+	if err != nil {
+		level = zapcore.InfoLevel
+	}
+
+	core := zapcore.NewCore(
+		zapcore.NewJSONEncoder(zapConfig),
+		zapcore.AddSync(fileWriter),
+		level,
+	)
+
+	// Create logger
+	logger := zap.New(core)
+	loggerInstance = NewLogger(logger)
 }
 
-func addTraceEntries(ctx context.Context, logger logrus.Ext1FieldLogger) logrus.Ext1FieldLogger {
+func addTraceEntries(ctx context.Context, logger *zap.Logger) *zap.Logger {
 	sc := trace.SpanContextFromContext(ctx)
-	newLogger := logger.
-		WithField(TraceIdKey, sc.TraceID().String()).
-		WithField(SpanIdKey, sc.SpanID().String()).
-		WithField(SpanParentIdKey, ctx.Value(SpanParentIdKey))
+	newLogger := logger.With(
+		zap.String(TraceIdKey, sc.TraceID().String()),
+		zap.String(SpanIdKey, sc.SpanID().String()),
+		zap.String(SpanParentIdKey, sc.TraceID().String()),
+	)
 	return newLogger
 }
 
-func addCallerEntries(logger logrus.Ext1FieldLogger) logrus.Ext1FieldLogger {
+func addCallerEntries(logger *zap.Logger) *zap.Logger {
 	if pc, file, line, ok := runtime.Caller(4); ok {
-		newLogger := logger.
-			WithField(CallerFileKey, file).
-			WithField(CallerFuncKey, runtime.FuncForPC(pc).Name()).
-			WithField(CallerLineKey, line)
+		newLogger := logger.With(
+			zap.String(CallerFileKey, file),
+			zap.String(CallerFuncKey, runtime.FuncForPC(pc).Name()),
+			zap.Int(CallerLineKey, line),
+		)
+
 		return newLogger
 	}
 	return logger
@@ -105,87 +124,114 @@ func addCallerEntries(logger logrus.Ext1FieldLogger) logrus.Ext1FieldLogger {
 // StdEntries Return entries with trace ID entry from span context,
 // span ID entry from span context, and
 // span parent ID entry from context
-func stdEntries(ctx context.Context, logger logrus.Ext1FieldLogger) logrus.Ext1FieldLogger {
+func stdEntries(ctx context.Context, logger *zap.Logger) *zap.Logger {
 	logger = addTraceEntries(ctx, logger)
 	logger = addCallerEntries(logger)
 	return logger
 }
 
-func (l *logger) GetLevel() logrus.Level {
+func (l *logger) GetLevel() zapcore.Level {
 	return level
 }
 
-func GetLevel() logrus.Level {
+func GetLevel() zapcore.Level {
 	return loggerInstance.GetLevel()
 }
 
-func (l *logger) GetLogrusLogger() logrus.Ext1FieldLogger {
+func (l *logger) GetZapLogger() *zap.Logger {
 	return l.log
 }
 
-func GetLogrusLogger() logrus.Ext1FieldLogger {
-	return loggerInstance.GetLogrusLogger()
+func GetZapLogger() *zap.Logger {
+	return loggerInstance.GetZapLogger()
 }
 
-func (l *logger) Info(ctx context.Context, args ...interface{}) {
-	utility.PrintInfo(fmt.Sprint(args...))
-	stdEntries(ctx, l.log).Info(args...)
+func (l *logger) Printf(format string, v ...interface{}) {
+	utility.PrintInfo(fmt.Sprintf(format, v...))
+	stdEntries(context.Background(), l.log).Info(fmt.Sprintf(format, v...))
 }
 
-func Info(ctx context.Context, args ...interface{}) {
-	loggerInstance.Info(ctx, args...)
+func Printf(format string, v ...interface{}) {
+	loggerInstance.Printf(format, v...)
 }
 
-func (l *logger) Warn(ctx context.Context, args ...interface{}) {
-	utility.PrintWarning(fmt.Sprint(args...))
-	stdEntries(ctx, l.log).Warn(args...)
+func (l *logger) Info(ctx context.Context, msg string, fields ...zap.Field) {
+	utility.PrintInfo(fmt.Sprint(msg))
+	stdEntries(ctx, l.log).Info(msg, fields...)
 }
 
-func Warn(ctx context.Context, args ...interface{}) {
-	loggerInstance.Warn(ctx, args...)
+func Info(ctx context.Context, msg string, fields ...zap.Field) {
+	loggerInstance.Info(ctx, msg, fields...)
 }
 
-func (l *logger) Error(ctx context.Context, err error, args ...interface{}) {
+func (l *logger) Warn(ctx context.Context, msg string, fields ...zap.Field) {
+	utility.PrintWarning(fmt.Sprint(msg))
+	stdEntries(ctx, l.log).Warn(msg, fields...)
+}
+
+func Warn(ctx context.Context, msg string, fields ...zap.Field) {
+	loggerInstance.Warn(ctx, msg, fields...)
+}
+
+func (l *logger) Error(ctx context.Context, err error, msg string) {
 	span := trace.SpanFromContext(ctx)
 	if span != nil {
 		span.RecordError(err)
 	}
 
-	utility.PrintError(fmt.Sprintf("%s: %v", args, err))
+	utility.PrintError(fmt.Sprintf("%s: %v", msg, err))
 
-	stdEntries(ctx, l.log).WithError(err).Error(args...)
+	stdEntries(ctx, l.log).Error(msg, zap.Error(err))
 }
 
-func Error(ctx context.Context, err error, args ...interface{}) {
-	loggerInstance.Error(ctx, err, args...)
+func Error(ctx context.Context, err error, msg ...string) {
+	message := ""
+
+	if len(msg) > 0 {
+		message = msg[0]
+	}
+
+	loggerInstance.Error(ctx, err, message)
 }
 
-func (l *logger) Fatal(ctx context.Context, err error, args ...interface{}) {
+func (l *logger) Fatal(ctx context.Context, err error, msg string) {
 	span := trace.SpanFromContext(ctx)
 	if span != nil {
 		span.RecordError(err)
 	}
 
-	utility.PrintError(fmt.Sprintf("%s: %v", args, err))
+	utility.PrintError(fmt.Sprintf("%s: %v", msg, err))
 
-	stdEntries(ctx, l.log).WithError(err).Fatal(args...)
+	stdEntries(ctx, l.log).Fatal(msg, zap.Error(err))
 }
 
-func Fatal(ctx context.Context, err error, args ...interface{}) {
-	loggerInstance.Fatal(ctx, err, args...)
+func Fatal(ctx context.Context, err error, msg ...string) {
+	message := ""
+
+	if len(msg) > 0 {
+		message = msg[0]
+	}
+
+	loggerInstance.Fatal(ctx, err, message)
 }
 
-func (l *logger) Panic(ctx context.Context, err error, args ...interface{}) {
+func (l *logger) Panic(ctx context.Context, err error, msg string) {
 	span := trace.SpanFromContext(ctx)
 	if span != nil {
 		span.RecordError(err)
 	}
 
-	utility.PrintError(fmt.Sprintf("%s: %v", args, err))
+	utility.PrintError(fmt.Sprintf("%s: %v", msg, err))
 
-	stdEntries(ctx, l.log).WithError(err).Panic(args...)
+	stdEntries(ctx, l.log).Panic(msg, zap.Error(err))
 }
 
-func Panic(ctx context.Context, err error, args ...interface{}) {
-	loggerInstance.Panic(ctx, err, args...)
+func Panic(ctx context.Context, err error, msg ...string) {
+	message := ""
+
+	if len(msg) > 0 {
+		message = msg[0]
+	}
+
+	loggerInstance.Panic(ctx, err, message)
 }
