@@ -32,9 +32,8 @@ func main() {
 
 type User struct {
 	FullName string `json:"fullName" binding:"required"`
-	// Gunakan comma untuk memisahkan nilai enum
-	Type   string `json:"type" binding:"required,enum=employee/customer/vendor"`
-	Status string `json:"status" binding:"required,enum=active/inactive"`
+	Type     string `json:"type" binding:"required,enum=employee/customer/vendor"`
+	Status   string `json:"status" binding:"required,enum=active/inactive"`
 }
 
 func HelloHandler(c *gin.Context) {
@@ -46,13 +45,12 @@ func HelloHandler(c *gin.Context) {
 func CreateUserHandler(c *gin.Context) {
 	var user User
 	if err := c.ShouldBindJSON(&user); err != nil {
-		c.Error(err) // Tambahkan error ke context
+		c.Error(err)
 		return
 	}
 
 	pagination := restapi.GetPage(c)
 
-	// Set data untuk success response
 	restapi.SetData(c, user)
 	restapi.SetPaggination(c, server.PageResponse{
 		TotalPage:   pagination.PageSize,
