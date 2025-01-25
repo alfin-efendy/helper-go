@@ -13,7 +13,6 @@ require (
 	github.com/inhies/go-bytesize v0.0.0-20220417184213-4913239db9cf
 	github.com/minio/minio-go/v7 v7.0.83
 	github.com/redis/go-redis/v9 v9.7.0
-	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.19.0
 	github.com/truemail-rb/truemail-go v1.1.4
 	go.opentelemetry.io/otel v1.34.0

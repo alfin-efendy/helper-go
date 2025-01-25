@@ -180,6 +180,12 @@ func Trace(ctx context.Context, spanName string, opts ...trace.SpanStartOption) 
 	return ctx, &SpanWrapper{span}
 }
 
+func (w *SpanWrapper) End(options ...trace.SpanEndOption) {
+	if isEnabled {
+		w.span.End(options...)
+	}
+}
+
 func AddCounter(_ context.Context, counterName string, unit string) error {
 	counter, err := meter.Int64Counter(counterName, metric.WithUnit(unit))
 	if err != nil {
