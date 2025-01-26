@@ -8,6 +8,7 @@ import (
 
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/logger"
+	"github.com/alfin-efendy/helper-go/otel"
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -17,6 +18,9 @@ import (
 var minioClient *minio.Client
 
 func initMinino(ctx context.Context) {
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
+
 	config := config.Config.Storage
 
 	if config == nil || *config.Driver != "minio" {
@@ -78,6 +82,9 @@ func initMinino(ctx context.Context) {
 }
 
 func UploadFileToMinio(ctx context.Context, file *multipart.FileHeader, path string, isTemporary bool) (minio.UploadInfo, error) {
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
+
 	if minioClient == nil {
 		initMinino(ctx)
 	}
@@ -114,6 +121,9 @@ func UploadFileToMinio(ctx context.Context, file *multipart.FileHeader, path str
 }
 
 func DownloadFileFromMinio(ctx context.Context, objectName string) (minio.ObjectInfo, []byte, error) {
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
+
 	if minioClient == nil {
 		initMinino(ctx)
 	}
