@@ -1,7 +1,6 @@
 package token
 
 import (
-	"context"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
@@ -9,17 +8,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/alfin-efendy/helper-go/otel"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 // private function parses PEM encoded private key from string
 // this function is created to support both PKCS1 and PKCS8
 // because jwt-go only supports PKCS1 or PKCS8, but function jwt.ParseRSAPrivateKeyFromPEM is not converting to PKCS1 or PKCS8
-func parsePrivateKey(ctx context.Context, jwtSecretKey string) (*rsa.PrivateKey, error) {
-	ctx, span := otel.Trace(ctx)
-	defer span.End()
-
+func parsePrivateKey(jwtSecretKey string) (*rsa.PrivateKey, error) {
 	// Decode private key string to PEM
 	block, _ := pem.Decode([]byte(jwtSecretKey))
 	if block == nil {
@@ -47,10 +42,7 @@ func parsePrivateKey(ctx context.Context, jwtSecretKey string) (*rsa.PrivateKey,
 }
 
 // JWTSign is the function to sign JWT
-func jwtSign(ctx context.Context, claims jwt.RegisteredClaims, secretPrivateKey string) (string, error) {
-	ctx, span := otel.Trace(ctx)
-	defer span.End()
-
+func jwtSign(claims jwt.RegisteredClaims, secretPrivateKey string) (string, error) {
 	// Decode base64 encoded private key
 	decodedPrivateKey, err := base64.StdEncoding.DecodeString(secretPrivateKey)
 	if err != nil {
@@ -58,7 +50,7 @@ func jwtSign(ctx context.Context, claims jwt.RegisteredClaims, secretPrivateKey 
 	}
 
 	// Parse private key from PEM
-	privateKey, err := parsePrivateKey(ctx, string(decodedPrivateKey))
+	privateKey, err := parsePrivateKey(string(decodedPrivateKey))
 	if err != nil {
 		return "", fmt.Errorf("could not parse token private key: %w", err)
 	}
@@ -73,10 +65,7 @@ func jwtSign(ctx context.Context, claims jwt.RegisteredClaims, secretPrivateKey 
 }
 
 // JWTVerify is the function to verify JWT
-func jwtVerify(ctx context.Context, tokenString string, secretPublicKey string) (*jwt.RegisteredClaims, error) {
-	ctx, span := otel.Trace(ctx)
-	defer span.End()
-
+func jwtVerify(tokenString string, secretPublicKey string) (*jwt.RegisteredClaims, error) {
 	// Decode base64 encoded public key
 	decodedPublicKey, err := base64.StdEncoding.DecodeString(secretPublicKey)
 	if err != nil {

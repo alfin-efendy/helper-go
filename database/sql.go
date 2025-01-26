@@ -49,11 +49,11 @@ func initSql(ctx context.Context) {
 		IgnoreRecordNotFoundError: true,
 	}
 
-	logging := log.NewLogger(log.GetZapLogger())
+	logging := log.New(log.WithConfig(loggerConfig))
 
 	db, err := gorm.Open(dialector, &gorm.Config{
 		SkipDefaultTransaction: true,
-		Logger:                 logger.New(logging, loggerConfig),
+		Logger:                 logging,
 		NamingStrategy: schema.NamingStrategy{
 			SingularTable: true,
 			NameReplacer:  strings.NewReplacer("-", "_", " ", "_"),

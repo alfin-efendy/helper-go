@@ -31,12 +31,11 @@ const (
 type Logger interface {
 	GetLevel() zapcore.Level
 	GetZapLogger() *zap.Logger
-	Printf(format string, v ...interface{})
-	Info(ctx context.Context, msg string, fields ...zap.Field)
-	Warn(ctx context.Context, msg string, fields ...zap.Field)
-	Error(ctx context.Context, err error, msg string)
-	Fatal(ctx context.Context, err error, msg string)
-	Panic(ctx context.Context, err error, msg string)
+	Info(ctx context.Context, msg string, args ...zap.Field)
+	Warn(ctx context.Context, msg string, args ...zap.Field)
+	Error(ctx context.Context, err error, args ...zap.Field)
+	Fatal(ctx context.Context, err error, args ...zap.Field)
+	Panic(ctx context.Context, err error, args ...zap.Field)
 }
 
 type logger struct {
@@ -146,92 +145,87 @@ func GetZapLogger() *zap.Logger {
 	return loggerInstance.GetZapLogger()
 }
 
-func (l *logger) Printf(format string, v ...interface{}) {
-	utility.PrintInfo(fmt.Sprintf(format, v...))
-	stdEntries(context.Background(), l.log).Info(fmt.Sprintf(format, v...))
-}
-
-func Printf(format string, v ...interface{}) {
-	loggerInstance.Printf(format, v...)
-}
-
-func (l *logger) Info(ctx context.Context, msg string, fields ...zap.Field) {
+func (l *logger) Info(ctx context.Context, msg string, args ...zap.Field) {
 	utility.PrintInfo(fmt.Sprint(msg))
-	stdEntries(ctx, l.log).Info(msg, fields...)
+	stdEntries(ctx, l.log).Info(msg, args...)
 }
 
-func Info(ctx context.Context, msg string, fields ...zap.Field) {
-	loggerInstance.Info(ctx, msg, fields...)
+func Info(ctx context.Context, msg string, args ...zap.Field) {
+	loggerInstance.Info(ctx, msg, args...)
 }
 
-func (l *logger) Warn(ctx context.Context, msg string, fields ...zap.Field) {
+func (l *logger) Warn(ctx context.Context, msg string, args ...zap.Field) {
 	utility.PrintWarning(fmt.Sprint(msg))
-	stdEntries(ctx, l.log).Warn(msg, fields...)
+	stdEntries(ctx, l.log).Warn(msg, args...)
 }
 
-func Warn(ctx context.Context, msg string, fields ...zap.Field) {
-	loggerInstance.Warn(ctx, msg, fields...)
+func Warn(ctx context.Context, msg string, args ...zap.Field) {
+	loggerInstance.Warn(ctx, msg, args...)
 }
 
-func (l *logger) Error(ctx context.Context, err error, msg string) {
+func (l *logger) Error(ctx context.Context, err error, args ...zap.Field) {
 	span := trace.SpanFromContext(ctx)
 	if span != nil {
 		span.RecordError(err)
 	}
 
-	utility.PrintError(fmt.Sprintf("%s: %v", msg, err))
+	utility.PrintError(err.Error())
 
-	stdEntries(ctx, l.log).Error(msg, zap.Error(err))
+	args = append(args, zap.Error(err))
+
+	stdEntries(ctx, l.log).Error(err.Error(), args...)
 }
 
 func Error(ctx context.Context, err error, msg ...string) {
-	message := ""
+	var fields []zap.Field
 
-	if len(msg) > 0 {
-		message = msg[0]
+	for _, m := range msg {
+		fields = append(fields, zap.String("message", m))
 	}
 
-	loggerInstance.Error(ctx, err, message)
+	loggerInstance.Error(ctx, err, fields...)
 }
 
-func (l *logger) Fatal(ctx context.Context, err error, msg string) {
+func (l *logger) Fatal(ctx context.Context, err error, args ...zap.Field) {
 	span := trace.SpanFromContext(ctx)
 	if span != nil {
 		span.RecordError(err)
 	}
 
-	utility.PrintError(fmt.Sprintf("%s: %v", msg, err))
+	args = append(args, zap.Error(err))
 
-	stdEntries(ctx, l.log).Fatal(msg, zap.Error(err))
+	stdEntries(ctx, l.log).Fatal(err.Error(), args...)
 }
 
 func Fatal(ctx context.Context, err error, msg ...string) {
-	message := ""
+	var fields []zap.Field
 
-	if len(msg) > 0 {
-		message = msg[0]
+	for _, m := range msg {
+		fields = append(fields, zap.String("message", m))
 	}
 
-	loggerInstance.Fatal(ctx, err, message)
+	loggerInstance.Fatal(ctx, err, fields...)
 }
 
-func (l *logger) Panic(ctx context.Context, err error, msg string) {
+func (l *logger) Panic(ctx context.Context, err error, args ...zap.Field) {
 	span := trace.SpanFromContext(ctx)
 	if span != nil {
 		span.RecordError(err)
 	}
 
-	utility.PrintError(fmt.Sprintf("%s: %v", msg, err))
+	utility.PrintError(err.Error())
 
-	stdEntries(ctx, l.log).Panic(msg, zap.Error(err))
+	args = append(args, zap.Error(err))
+
+	stdEntries(ctx, l.log).Panic(err.Error(), args...)
 }
 
 func Panic(ctx context.Context, err error, msg ...string) {
-	message := ""
+	var fields []zap.Field
 
-	if len(msg) > 0 {
-		message = msg[0]
+	for _, m := range msg {
+		fields = append(fields, zap.String("message", m))
 	}
 
-	loggerInstance.Panic(ctx, err, message)
+	loggerInstance.Panic(ctx, err, fields...)
 }

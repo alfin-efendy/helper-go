@@ -6,23 +6,18 @@ import (
 
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/database"
-	"github.com/alfin-efendy/helper-go/otel"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
 // signToken is a helper private function that signs a JWT token and stores it in Redis.
 func signToken(ctx context.Context, id, issuer, subject, keyPrivate string, expiredHour int, ability []string) (string, time.Time, error) {
-	ctx, span := otel.Trace(ctx)
-	defer span.End()
-
 	// Generate token expired time
 	tokenExpiredDuration := time.Duration(expiredHour) * time.Hour
 	tokenExpired := time.Now().UTC().Add(tokenExpiredDuration)
 
 	// Generate JWT token
 	token, err := jwtSign(
-		ctx,
 		jwt.RegisteredClaims{
 			Issuer:    issuer,
 			Subject:   subject,
@@ -51,9 +46,6 @@ func signToken(ctx context.Context, id, issuer, subject, keyPrivate string, expi
 
 // TokenGenerate is a helper private function that generates access and refresh tokens.
 func TokenGenerate(ctx context.Context, subject string, ability []string) (string, time.Time, string, time.Time, error) {
-	ctx, span := otel.Trace(ctx)
-	defer span.End()
-
 	// Generate access token id
 	accessId := uuid.New().String()
 	config := config.Config
@@ -86,9 +78,6 @@ func TokenGenerate(ctx context.Context, subject string, ability []string) (strin
 // TokenValidation is a helper private function that validates a JWT token.
 // param tokenType is access or refresh.
 func TokenValidation(ctx context.Context, token, tokenType string, validationExpired bool) (*jwt.RegisteredClaims, error) {
-	ctx, span := otel.Trace(ctx)
-	defer span.End()
-
 	var keyPublic string
 	if tokenType == "access" {
 		keyPublic = config.Config.Token.AccessPublicKey
@@ -97,7 +86,7 @@ func TokenValidation(ctx context.Context, token, tokenType string, validationExp
 	}
 
 	// Validate access token
-	dataToken, err := jwtVerify(ctx, token, keyPublic)
+	dataToken, err := jwtVerify(token, keyPublic)
 
 	if err != nil {
 		if !validationExpired && err.Error() == "token has invalid claims: token is expired" {
