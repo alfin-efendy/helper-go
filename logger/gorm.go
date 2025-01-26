@@ -112,7 +112,12 @@ func (l ZapGormLogger) Error(ctx context.Context, msg string, args ...interface{
 			}
 		}
 
-		l.log.Error(ctx, fmt.Errorf(msg), fields...)
+		var err error
+		if msg != "" {
+			err = errors.New(msg)
+		}
+
+		l.log.Error(ctx, err, fields...)
 	}
 }
 
@@ -121,6 +126,12 @@ func (l ZapGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 	if l.LogLevel <= gormLogger.Silent {
 		return
 	}
+
+	var msg string
+	if err != nil {
+		msg = err.Error()
+	}
+
 	fields := make([]zap.Field, 0, 6+len(l.customFields))
 	elapsed := time.Since(begin)
 	switch {
@@ -161,7 +172,7 @@ func (l ZapGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 			fields = append(fields, zap.Int64("rows", rows))
 		}
 		fields = append(fields, zap.String("sql", sql))
-		l.log.Warn(ctx, err.Error(), fields...)
+		l.log.Warn(ctx, msg, fields...)
 	case l.LogLevel == gormLogger.Info:
 		for _, customField := range l.customFields {
 			fields = append(fields, customField(ctx))
@@ -180,7 +191,7 @@ func (l ZapGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 		}
 		fields = append(fields, zap.String("sql", sql))
 
-		l.log.Info(ctx, err.Error(), fields...)
+		l.log.Info(ctx, msg, fields...)
 	}
 }
 
