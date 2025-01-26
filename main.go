@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/alfin-efendy/helper-go/app"
 	"github.com/alfin-efendy/helper-go/config"
+	"github.com/alfin-efendy/helper-go/otel"
 	"github.com/alfin-efendy/helper-go/server"
 	"github.com/alfin-efendy/helper-go/server/restapi"
 	"github.com/gin-gonic/gin"
@@ -37,9 +39,19 @@ type User struct {
 }
 
 func HelloHandler(c *gin.Context) {
+	ctx, span := otel.Trace(c.Request.Context())
+	defer span.End()
+
+	Test(ctx)
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Hello, World!",
 	})
+}
+
+func Test(c context.Context) {
+	_, span := otel.Trace(c)
+	defer span.End()
 }
 
 func CreateUserHandler(c *gin.Context) {

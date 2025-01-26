@@ -15,6 +15,7 @@ import (
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/database"
 	"github.com/alfin-efendy/helper-go/logger"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 var (
@@ -22,10 +23,11 @@ var (
 	options []healthcheck.Option
 )
 
-func init() {
+func Init() {
 	Server = gin.Default()
 
 	Server.Use(
+		otelgin.Middleware(config.Config.App.Name),
 		traceRequest(),
 		gin.Recovery(),
 		gzip.Gzip(gzip.DefaultCompression),
@@ -68,8 +70,9 @@ func healthz() http.Handler {
 
 func Run() {
 	ctx := context.Background()
+	conf := config.Config
 
-	if config.Config.Server.RestAPI == nil {
+	if conf.Server.RestAPI == nil {
 		logger.Warn(ctx, "REST API is disabled")
 		return
 	}
@@ -90,8 +93,8 @@ func Run() {
 		return dbsql.Ping()
 	})
 
-	host := config.Config.Server.RestAPI.Host
-	port := config.Config.Server.RestAPI.Port
+	host := conf.Server.RestAPI.Host
+	port := conf.Server.RestAPI.Port
 
 	err := Server.Run(fmt.Sprintf("%s:%d", host, port))
 	if err != nil {

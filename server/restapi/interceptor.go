@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/alfin-efendy/helper-go/otel"
 	"github.com/alfin-efendy/helper-go/server"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 )
 
@@ -17,14 +17,10 @@ var (
 )
 
 func traceRequest() gin.HandlerFunc {
-	tracer := otel.GetTracer()
-
 	return func(c *gin.Context) {
-		ctx, span := tracer.Start(c.Request.Context(), c.Request.URL.Path)
-		defer span.End()
+		sc := trace.SpanContextFromContext(c.Request.Context())
 
-		c.Request = c.Request.WithContext(ctx)
-		c.Writer.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
+		c.Writer.Header().Set("X-Trace-ID", sc.TraceID().String())
 		c.Next()
 	}
 }

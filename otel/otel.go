@@ -2,12 +2,14 @@ package otel
 
 import (
 	"context"
+	"errors"
+	"runtime"
 	"time"
 
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/config/model"
 	"github.com/alfin-efendy/helper-go/logger"
-	"github.com/inhies/go-bytesize"
+	"github.com/alfin-efendy/helper-go/utility"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -23,16 +25,37 @@ import (
 )
 
 var (
-	tracer      trace.Tracer
-	meter       metric.Meter
-	counters    map[string]metric.Int64Counter
-	configs     *model.Config
-	isEnabled   bool
-	serviceName string
+	otelInstance Otel
+	configs      *model.Config
+	isEnabled    bool
+	serviceName  string
+	Shutdown     = func(context.Context) error {
+		return nil
+	}
 )
+
+type Otel interface {
+	Trace(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, *SpanWrapper)
+	AddCounter(ctx context.Context, counterName string, unit string) error
+	Count(ctx context.Context, counterName string, incr int64, opts ...metric.AddOption)
+}
 
 type SpanWrapper struct {
 	span trace.Span
+}
+
+type otelWrapper struct {
+	tracer   trace.Tracer
+	meter    metric.Meter
+	counters map[string]metric.Int64Counter
+}
+
+func NewOtel(tracer trace.Tracer, meter metric.Meter, counters map[string]metric.Int64Counter) Otel {
+	return &otelWrapper{
+		tracer:   tracer,
+		meter:    meter,
+		counters: counters,
+	}
 }
 
 func Init() {
@@ -40,7 +63,7 @@ func Init() {
 	configs = config.Config
 
 	// Check if OpenTelemetry is enabled
-	if configs.Otel.Trace == nil && configs.Otel.Metric == nil {
+	if !configs.Otel.Trace && !configs.Otel.Metric {
 		isEnabled = false
 		logger.Warn(ctx, "OpenTelemetry is disabled")
 		return
@@ -70,81 +93,63 @@ func Init() {
 		return
 	}
 
-	if configs.Otel.Trace.Exporters.Enable {
+	// Initialize grpc connection
+	conn, err := initGrpcConn(ctx, configs.Otel.Host)
+
+	// Intialize shutdown hook
+	var shutdownHooks []func(context.Context) error
+	Shutdown = func(ctx context.Context) error {
+		for _, hook := range shutdownHooks {
+			err = errors.Join(err, hook(ctx))
+		}
+		shutdownHooks = nil
+		return err
+	}
+
+	if configs.Otel.Trace {
 		// Initialize trace provider
-		err = initTracerProvider(ctx, res)
+		err = initTracerProvider(ctx, res, conn)
 		if err != nil {
 			logger.Fatal(ctx, err, "Failed to initialize OpenTelemetry trace provider")
 			return
 		}
 	}
 
-	if configs.Otel.Metric.Exporters.Enable {
-		var metricExporter sdkmetric.Exporter
-
-		conn, cancel, err := initGrpcConn(ctx, configs.Otel.Metric.Exporters.Otlp)
+	if configs.Otel.Metric {
+		// Initialize metric provider
+		err = initMetricProvider(ctx, res, conn)
 		if err != nil {
-			logger.Fatal(ctx, err, "Failed to initialize OpenTelemetry metric exporter")
+			logger.Fatal(ctx, err, "Failed to initialize OpenTelemetry metric provider")
 			return
 		}
-		defer cancel()
-
-		metricExporter, err = otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithGRPCConn(conn))
-		if err != nil {
-			logger.Fatal(ctx, err, "Failed to create OpenTelemetry metric exporter")
-			return
-		}
-
-		meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)))
-		otel.SetMeterProvider(meterProvider)
 	}
 
 	// Set default tracer
-	tracer = otel.Tracer(serviceName)
+	tracer := otel.Tracer(serviceName)
 
 	// Set default meter
-	meter = otel.Meter(configs.Otel.Metric.InstrumentationName)
+	meter := otel.Meter(serviceName)
 
 	// Init default counters
-	counters = make(map[string]metric.Int64Counter)
+	counters := make(map[string]metric.Int64Counter)
+	otelInstance = NewOtel(tracer, meter, counters)
 }
 
-func initGrpcConn(ctx context.Context, exporterConfig *model.OtelExportersOtlp) (*grpc.ClientConn, context.CancelFunc, error) {
-	opts := make([]grpc.DialOption, 0)
-	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-
-	clientMaxReceiveMessageSizeStr := exporterConfig.ClientMaxReceiveMessageSize
-	if clientMaxReceiveMessageSizeStr != "" {
-		clientMaxReceiveMessageSize, err := bytesize.Parse(clientMaxReceiveMessageSizeStr)
-		if err != nil {
-			logger.Fatal(ctx, err, "Failed to parse clientMaxReceiveMessageSize")
-			return nil, nil, err
-		}
-
-		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(int(clientMaxReceiveMessageSize))))
-	}
-
-	// Create GRPC connection with timeout
-	ctxCancel, cancel := context.WithTimeout(ctx, time.Duration(exporterConfig.Timeout)*time.Second)
-	conn, err := grpc.DialContext(
-		ctxCancel,
-		exporterConfig.Address,
-		opts...,
-	)
-	return conn, cancel, err
-}
-
-func initTracerProvider(ctx context.Context, res *resource.Resource) error {
-	conf := configs.Otel.Trace.Exporters.Otlp
-
+func initGrpcConn(ctx context.Context, address string) (*grpc.ClientConn, error) {
 	conn, err := grpc.NewClient(
-		conf.Address,
+		address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
 		logger.Fatal(ctx, err, "Failed to create gRPC connection")
-		return err
+		return nil, err
 	}
+
+	return conn, nil
+}
+
+func initTracerProvider(ctx context.Context, res *resource.Resource, conn *grpc.ClientConn) error {
+	conf := configs.Otel
 
 	exporter, err := otlptracegrpc.New(
 		ctx,
@@ -167,39 +172,83 @@ func initTracerProvider(ctx context.Context, res *resource.Resource) error {
 	return nil
 }
 
-func Trace(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, *SpanWrapper) {
+func initMetricProvider(ctx context.Context, res *resource.Resource, conn *grpc.ClientConn) error {
+	conf := configs.Otel
+
+	exporter, err := otlpmetricgrpc.New(
+		ctx,
+		otlpmetricgrpc.WithGRPCConn(conn),
+		otlpmetricgrpc.WithTimeout(time.Duration(conf.Timeout)*time.Second),
+	)
+	if err != nil {
+		logger.Fatal(ctx, err, "Failed to create metric exporter")
+		return err
+	}
+
+	meterProvider := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(
+			sdkmetric.NewPeriodicReader(exporter,
+				sdkmetric.WithInterval(3*time.Second),
+			),
+		),
+		sdkmetric.WithResource(res),
+	)
+
+	otel.SetMeterProvider(meterProvider)
+
+	return nil
+}
+
+func (o *otelWrapper) Trace(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, *SpanWrapper) {
 	// Get parent span if any
 	sc := trace.SpanContextFromContext(ctx)
 	ctx = context.WithValue(ctx, logger.SpanParentIdKey, sc.SpanID().String())
 
 	var span trace.Span
-	if isEnabled {
-		ctx, span = tracer.Start(ctx, spanName, opts...)
-	}
+	ctx, span = o.tracer.Start(ctx, spanName, opts...)
 
 	return ctx, &SpanWrapper{span}
 }
 
-func (w *SpanWrapper) End(options ...trace.SpanEndOption) {
-	if isEnabled {
-		w.span.End(options...)
+func Trace(ctx context.Context, opts ...trace.SpanStartOption) (context.Context, *SpanWrapper) {
+	name := "unknown"
+
+	pc, file, line, ok := runtime.Caller(1)
+	if ok {
+		opts = append(opts, trace.WithAttributes(
+			semconv.CodeLineNumberKey.Int(line),
+			semconv.CodeFilepathKey.String(file),
+			semconv.CodeFunctionKey.String(runtime.FuncForPC(pc).Name()),
+		))
+
+		name = utility.GetFrame(1).Function
 	}
+
+	return otelInstance.Trace(ctx, name, opts...)
 }
 
-func AddCounter(_ context.Context, counterName string, unit string) error {
-	counter, err := meter.Int64Counter(counterName, metric.WithUnit(unit))
+func (w *SpanWrapper) End(options ...trace.SpanEndOption) {
+	w.span.End(options...)
+}
+
+func (o *otelWrapper) AddCounter(_ context.Context, counterName string, unit string) error {
+	counter, err := o.meter.Int64Counter(counterName, metric.WithUnit(unit))
 	if err != nil {
 		return err
 	}
 
-	counters[counterName] = counter
+	o.counters[counterName] = counter
 	return nil
 }
 
-func Count(ctx context.Context, counterName string, incr int64, opts ...metric.AddOption) {
-	counters[counterName].Add(ctx, incr, opts...)
+func AddCounter(ctx context.Context, counterName string, unit string) error {
+	return otelInstance.AddCounter(ctx, counterName, unit)
 }
 
-func GetTracer() trace.Tracer {
-	return otel.Tracer(serviceName)
+func (o *otelWrapper) Count(ctx context.Context, counterName string, incr int64, opts ...metric.AddOption) {
+	o.counters[counterName].Add(ctx, incr, opts...)
+}
+
+func Count(ctx context.Context, counterName string, incr int64, opts ...metric.AddOption) {
+	otelInstance.Count(ctx, counterName, incr, opts...)
 }
