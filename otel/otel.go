@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/alfin-efendy/helper-go/config"
@@ -221,7 +222,10 @@ func Trace(ctx context.Context, opts ...trace.SpanStartOption) (context.Context,
 			semconv.CodeFunctionKey.String(runtime.FuncForPC(pc).Name()),
 		))
 
-		name = utility.GetFrame(1).Function
+		fullName := utility.GetFrame(1).Function
+		fullNames := strings.Split(fullName, "/")
+
+		name = fullNames[len(fullNames)-1]
 	}
 
 	return otelInstance.Trace(ctx, name, opts...)

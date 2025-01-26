@@ -1,9 +1,14 @@
 package database
 
-import "context"
+import (
+	"context"
 
-func Init() {
-	ctx := context.Background()
+	"github.com/alfin-efendy/helper-go/otel"
+)
+
+func Init(ctx context.Context) {
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
 
 	initSql(ctx)
 	initRedis(ctx)

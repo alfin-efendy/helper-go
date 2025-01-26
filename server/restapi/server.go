@@ -15,6 +15,7 @@ import (
 	"github.com/alfin-efendy/helper-go/config"
 	"github.com/alfin-efendy/helper-go/database"
 	"github.com/alfin-efendy/helper-go/logger"
+	"github.com/alfin-efendy/helper-go/otel"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
@@ -23,7 +24,10 @@ var (
 	options []healthcheck.Option
 )
 
-func Init() {
+func Init(ctx context.Context) {
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
+
 	Server = gin.Default()
 
 	Server.Use(
@@ -68,8 +72,7 @@ func healthz() http.Handler {
 	return healthcheck.Handler(options...)
 }
 
-func Run() {
-	ctx := context.Background()
+func Run(ctx context.Context) {
 	conf := config.Config
 
 	if conf.Server.RestAPI == nil {

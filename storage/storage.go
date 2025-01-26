@@ -1,5 +1,14 @@
 package storage
 
-func Init() {
-	initMinino()
+import (
+	"context"
+
+	"github.com/alfin-efendy/helper-go/otel"
+)
+
+func Init(ctx context.Context) {
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
+
+	initMinino(ctx)
 }

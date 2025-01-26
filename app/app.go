@@ -12,22 +12,31 @@ import (
 	"github.com/alfin-efendy/helper-go/storage"
 )
 
+var ctx context.Context
+
 func init() {
+	ctx = context.Background()
+
 	config.Load()
 	logger.Init()
 	otel.Init()
-	database.Init()
-	storage.Init()
-	restapi.Init()
+
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
+
+	database.Init(ctx)
+	storage.Init(ctx)
+	restapi.Init(ctx)
 }
 
 func Start(fn func()) {
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
+
 	fn()
-	go restapi.Run()
+	go restapi.Run(ctx)
 
 	defer func() {
-		ctx := context.Background()
-
 		err := otel.Shutdown(ctx)
 		if err != nil {
 			logger.Error(ctx, err)

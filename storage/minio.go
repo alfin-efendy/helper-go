@@ -16,7 +16,7 @@ import (
 
 var minioClient *minio.Client
 
-func initMinino() {
+func initMinino(ctx context.Context) {
 	config := config.Config.Storage
 
 	if config == nil || *config.Driver != "minio" {
@@ -24,7 +24,6 @@ func initMinino() {
 	}
 
 	var err error
-	ctx := context.Background()
 
 	minioClient, err = minio.New(config.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(config.AccessKey, config.SecretKey, ""),
@@ -80,7 +79,7 @@ func initMinino() {
 
 func UploadFileToMinio(ctx context.Context, file *multipart.FileHeader, path string, isTemporary bool) (minio.UploadInfo, error) {
 	if minioClient == nil {
-		initMinino()
+		initMinino(ctx)
 	}
 
 	var info minio.UploadInfo
@@ -116,7 +115,7 @@ func UploadFileToMinio(ctx context.Context, file *multipart.FileHeader, path str
 
 func DownloadFileFromMinio(ctx context.Context, objectName string) (minio.ObjectInfo, []byte, error) {
 	if minioClient == nil {
-		initMinino()
+		initMinino(ctx)
 	}
 
 	info, err := minioClient.StatObject(ctx, config.Config.Storage.BucketName, objectName, minio.StatObjectOptions{})
