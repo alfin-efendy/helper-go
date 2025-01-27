@@ -90,7 +90,6 @@ func addTraceEntries(ctx context.Context, logger *zap.Logger) *zap.Logger {
 	newLogger := logger.With(
 		zap.String(TraceIdKey, sc.TraceID().String()),
 		zap.String(SpanIdKey, sc.SpanID().String()),
-		zap.String(SpanParentIdKey, sc.TraceID().String()),
 	)
 	return newLogger
 }

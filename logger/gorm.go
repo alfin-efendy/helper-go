@@ -128,6 +128,8 @@ func (l ZapGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 	}
 
 	fields := make([]zap.Field, 0, 6+len(l.customFields))
+	end := time.Now()
+	latency := end.Sub(begin)
 	elapsed := time.Since(begin)
 	sql, rows := fc()
 
@@ -141,7 +143,7 @@ func (l ZapGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 
 	fields = append(fields,
 		zap.String("file", utils.FileWithLineNum()),
-		zap.Duration("latency", elapsed),
+		zap.Duration("latency", latency),
 	)
 
 	if rows == -1 {
@@ -152,7 +154,7 @@ func (l ZapGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 
 	fields = append(fields, zap.String("sql", sql))
 
-	msg := fmt.Sprintf("[%v] [rows:%v] %s", elapsed, rows, sql)
+	msg := fmt.Sprintf("[%v] [rows:%v] %s", latency, rows, sql)
 
 	switch {
 	case err != nil && l.LogLevel >= gormLogger.Error && (!l.IgnoreRecordNotFoundError || !errors.Is(err, gorm.ErrRecordNotFound)):

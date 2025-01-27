@@ -1,6 +1,9 @@
 package restapi
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,12 +16,33 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// ResponseWriter is a custom response writer to capture the response body
+type ResponseWriter struct {
+	gin.ResponseWriter
+	body *bytes.Buffer
+}
+
+func (w ResponseWriter) Write(b []byte) (int, error) {
+	w.body.Write(b)
+	return w.ResponseWriter.Write(b)
+}
+
 // LoggerMiddleware logs the request and response details.
 // It is a middleware function for Gin framework.
 func loggerMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		// Start timer
 		start := time.Now()
+
+		// Read the request body
+		payload, err := io.ReadAll(ctx.Request.Body)
+		if err == nil {
+			ctx.Request.Body = io.NopCloser(bytes.NewBuffer(payload))
+		}
+
+		// Create a new body buffer
+		responseWriter := &ResponseWriter{body: bytes.NewBufferString(""), ResponseWriter: ctx.Writer}
+		ctx.Writer = responseWriter
 
 		// Process request
 		ctx.Next()
@@ -27,14 +51,17 @@ func loggerMiddleware() gin.HandlerFunc {
 		end := time.Now()
 		latency := end.Sub(start)
 
+		msg := fmt.Sprintf("[%v] [%v] %s %s", latency, ctx.Writer.Status(), ctx.Request.Method, ctx.Request.RequestURI)
+
 		// Log details
 		logger.Info(
 			ctx.Request.Context(),
-			ctx.Request.URL.Path,
+			msg,
 			zapcore.Field{Key: "Method", Type: zapcore.StringType, String: ctx.Request.Method},
 			zapcore.Field{Key: "Query", Type: zapcore.StringType, String: ctx.Request.URL.RawQuery},
-			zapcore.Field{Key: "Payload", Type: zapcore.ReflectType, Interface: ctx.Keys},
+			zapcore.Field{Key: "Payload", Type: zapcore.ByteStringType, Interface: payload},
 			zapcore.Field{Key: "Status", Type: zapcore.Int64Type, Integer: int64(ctx.Writer.Status())},
+			zapcore.Field{Key: "Response", Type: zapcore.ByteStringType, Interface: responseWriter.body.Bytes()},
 			zapcore.Field{Key: "Latency", Type: zapcore.StringType, String: latency.String()},
 			zapcore.Field{Key: "ClientIP", Type: zapcore.StringType, String: ctx.ClientIP()},
 			zapcore.Field{Key: "UserAgent", Type: zapcore.StringType, String: ctx.GetHeader("User-Agent")},
