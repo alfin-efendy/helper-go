@@ -30,10 +30,10 @@ func loggerMiddleware() gin.HandlerFunc {
 		// Log details
 		logger.Info(
 			ctx.Request.Context(),
-			"Request",
+			ctx.Request.URL.Path,
 			zapcore.Field{Key: "Method", Type: zapcore.StringType, String: ctx.Request.Method},
-			zapcore.Field{Key: "Path", Type: zapcore.StringType, String: ctx.Request.URL.Path},
 			zapcore.Field{Key: "Query", Type: zapcore.StringType, String: ctx.Request.URL.RawQuery},
+			zapcore.Field{Key: "Payload", Type: zapcore.ReflectType, Interface: ctx.Keys},
 			zapcore.Field{Key: "Status", Type: zapcore.Int64Type, Integer: int64(ctx.Writer.Status())},
 			zapcore.Field{Key: "Latency", Type: zapcore.StringType, String: latency.String()},
 			zapcore.Field{Key: "ClientIP", Type: zapcore.StringType, String: ctx.ClientIP()},

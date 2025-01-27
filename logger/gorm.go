@@ -127,70 +127,43 @@ func (l ZapGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 		return
 	}
 
-	var msg string
-	if err != nil {
-		msg = err.Error()
-	}
-
 	fields := make([]zap.Field, 0, 6+len(l.customFields))
 	elapsed := time.Since(begin)
+	sql, rows := fc()
+
+	for _, customField := range l.customFields {
+		fields = append(fields, customField(ctx))
+	}
+
+	if err != nil {
+		fields = append(fields, zap.Error(err))
+	}
+
+	fields = append(fields,
+		zap.String("file", utils.FileWithLineNum()),
+		zap.Duration("latency", elapsed),
+	)
+
+	if rows == -1 {
+		fields = append(fields, zap.String("rows", "-"))
+	} else {
+		fields = append(fields, zap.Int64("rows", rows))
+	}
+
+	fields = append(fields, zap.String("sql", sql))
+
+	msg := fmt.Sprintf("[%v] [rows:%v] %s", elapsed, rows, sql)
+
 	switch {
 	case err != nil && l.LogLevel >= gormLogger.Error && (!l.IgnoreRecordNotFoundError || !errors.Is(err, gorm.ErrRecordNotFound)):
-		for _, customField := range l.customFields {
-			fields = append(fields, customField(ctx))
-		}
-		fields = append(fields,
-			zap.Error(err),
-			zap.String("file", utils.FileWithLineNum()),
-			zap.Duration("latency", elapsed),
-		)
-
-		sql, rows := fc()
-		if rows == -1 {
-			fields = append(fields, zap.String("rows", "-"))
-		} else {
-			fields = append(fields, zap.Int64("rows", rows))
-		}
-		fields = append(fields, zap.String("sql", sql))
-
 		l.log.Error(ctx, err, fields...)
 	case elapsed > l.SlowThreshold && l.SlowThreshold != 0 && l.LogLevel >= gormLogger.Warn:
-		for _, customField := range l.customFields {
-			fields = append(fields, customField(ctx))
-		}
 		fields = append(fields,
-			zap.Error(err),
-			zap.String("file", utils.FileWithLineNum()),
 			zap.String("slow!!!", fmt.Sprintf("SLOW SQL >= %v", l.SlowThreshold)),
-			zap.Duration("latency", elapsed),
 		)
 
-		sql, rows := fc()
-		if rows == -1 {
-			fields = append(fields, zap.String("rows", "-"))
-		} else {
-			fields = append(fields, zap.Int64("rows", rows))
-		}
-		fields = append(fields, zap.String("sql", sql))
 		l.log.Warn(ctx, msg, fields...)
 	case l.LogLevel == gormLogger.Info:
-		for _, customField := range l.customFields {
-			fields = append(fields, customField(ctx))
-		}
-		fields = append(fields,
-			zap.Error(err),
-			zap.String("file", utils.FileWithLineNum()),
-			zap.Duration("latency", elapsed),
-		)
-
-		sql, rows := fc()
-		if rows == -1 {
-			fields = append(fields, zap.String("rows", "-"))
-		} else {
-			fields = append(fields, zap.Int64("rows", rows))
-		}
-		fields = append(fields, zap.String("sql", sql))
-
 		l.log.Info(ctx, msg, fields...)
 	}
 }
