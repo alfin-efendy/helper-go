@@ -29,6 +29,11 @@ var (
 
 func initSql(ctx context.Context) {
 	config := config.Config.Database.Sql
+	if config == nil {
+		log.Warn(ctx, "❌ Database configuration is not found")
+		return
+	}
+
 	logLevel := log.GetLevel()
 
 	dialector := postgres.Open(

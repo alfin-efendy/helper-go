@@ -1,8 +1,8 @@
 package model
 
 type database struct {
-	Sql   sql   `mapstructure:"sql"`
-	Redis redis `mapstructure:"redis"`
+	Sql   *sql   `mapstructure:"sql"`
+	Redis *redis `mapstructure:"redis"`
 }
 
 type sql struct {

@@ -36,11 +36,6 @@ func WithConfig(cfg gormLogger.Config) Option {
 	}
 }
 
-// SetGormDBLogger set db logger
-func SetGormDBLogger(db *gorm.DB, l gormLogger.Interface) {
-	db.Logger = l
-}
-
 // New logger form gorm2
 func New(opts ...Option) gormLogger.Interface {
 	l := &ZapGormLogger{

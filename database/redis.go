@@ -15,6 +15,10 @@ var redisClient *redis.Client
 
 func initRedis(ctx context.Context) {
 	config := config.Config
+	if config.Database.Redis == nil {
+		logger.Warn(ctx, "❌ Redis configuration is not found")
+		return
+	}
 
 	switch config.Database.Redis.Mode {
 	case "single":
