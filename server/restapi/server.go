@@ -80,21 +80,25 @@ func Run(ctx context.Context) {
 		return
 	}
 
-	redis := database.GetRedisClient()
+	if conf.Database.Redis != nil {
+		redis := database.GetRedisClient()
 
-	addChecker("redis", func(ctx context.Context) error {
-		if _, err := redis.Ping(ctx).Result(); err != nil {
-			return err
-		}
-		return nil
-	})
+		addChecker("redis", func(ctx context.Context) error {
+			if _, err := redis.Ping(ctx).Result(); err != nil {
+				return err
+			}
+			return nil
+		})
+	}
 
-	sqlClient := database.GetSqlClient()
-	dbsql, _ := sqlClient.DB()
+	if conf.Database.Sql != nil {
+		sqlClient := database.GetSqlClient()
+		dbsql, _ := sqlClient.DB()
 
-	addChecker("sql", func(ctx context.Context) error {
-		return dbsql.Ping()
-	})
+		addChecker("sql", func(ctx context.Context) error {
+			return dbsql.Ping()
+		})
+	}
 
 	host := conf.Server.RestAPI.Host
 	port := conf.Server.RestAPI.Port
