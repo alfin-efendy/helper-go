@@ -14,6 +14,8 @@ import (
 	"github.com/alfin-efendy/helper-go/token"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap/zapcore"
+
+	helperCtx "github.com/alfin-efendy/helper-go/context"
 )
 
 // ResponseWriter is a custom response writer to capture the response body
@@ -168,6 +170,17 @@ func AuthMiddleware(permission string) gin.HandlerFunc {
 
 		ctx.Set("issuer", dataAccess.Issuer)
 		ctx.Set("subject", dataAccess.Subject)
+		ctx.Next()
+	}
+}
+
+func headerToContext() gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		thisCtx := ctx.Request.Context()
+
+		helperCtx.SetUserId(thisCtx, ctx.GetHeader("X-User-Id"))
+		helperCtx.SetFullName(thisCtx, ctx.GetHeader("X-Full-Name"))
+		helperCtx.SetRealm(thisCtx, ctx.GetHeader("X-Realm"))
 		ctx.Next()
 	}
 }
