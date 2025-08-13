@@ -3,216 +3,421 @@ package logger
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/alfin-efendy/helper-go/config"
-	"github.com/alfin-efendy/helper-go/utility"
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
-	loggerInstance Logger
-	level          zapcore.Level
+	defaultLogger *Logger
+	once          sync.Once
+	mu            sync.RWMutex
 )
 
 const (
-	TraceIdKey      = "traceID"
-	SpanIdKey       = "spanID"
-	SpanParentIdKey = "spanParentID"
-	CallerFileKey   = "callerFile"
-	CallerFuncKey   = "callerFunc"
-	CallerLineKey   = "callerLine"
+	// Field keys for structured logging
+	TraceIDKey    = "traceID"
+	SpanIDKey     = "spanID"
+	CallerFileKey = "file"
+	CallerFuncKey = "func"
+	CallerLineKey = "line"
+
+	// Default caller skip depth
+	defaultCallerDepth = 3
 )
 
-type Logger interface {
-	GetLevel() zapcore.Level
-	GetZapLogger() *zap.Logger
-	Info(ctx context.Context, msg string, args ...zap.Field)
-	Warn(ctx context.Context, msg string, args ...zap.Field)
-	Error(ctx context.Context, err error, args ...zap.Field)
-	Fatal(ctx context.Context, err error, args ...zap.Field)
-	Panic(ctx context.Context, err error, args ...zap.Field)
-}
-
-type logger struct {
-	log *zap.Logger
-}
-
-func NewLogger(log *zap.Logger) Logger {
-	return &logger{log: log}
-}
-
-func Init() {
-	var location string
-	if config.Config.Log.Location != nil {
-		location = *config.Config.Log.Location
-	} else {
-		location = os.TempDir() + "/logs/" + "app.log"
+// validateLogPath validates that the log file path is safe
+func validateLogPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("log path cannot be empty")
 	}
 
-	os.MkdirAll(location, os.ModePerm)
+	// Clean the path to resolve any relative path components
+	cleanPath := filepath.Clean(path)
 
-	// Set retention policy for logs
-	fileWriter := &lumberjack.Logger{
-		Filename:   location,
-		MaxSize:    config.Config.Log.MaxSize,
-		MaxAge:     config.Config.Log.MaxAge,
-		MaxBackups: config.Config.Log.MaxBackups,
-		Compress:   config.Config.Log.Compress,
+	// Check for directory traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("log path contains directory traversal: %s", path)
 	}
 
-	// Build log configuration
-	zapConfig := zap.NewProductionEncoderConfig()
+	// Ensure the path is absolute or relative to current directory (no leading /)
+	// This prevents writing to system directories
+	if filepath.IsAbs(cleanPath) {
+		// Allow absolute paths only in common log directories
+		allowedPrefixes := []string{
+			"/var/log/",
+			"/tmp/",
+			"/home/",
+		}
+		allowed := false
+		for _, prefix := range allowedPrefixes {
+			if strings.HasPrefix(cleanPath, prefix) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("absolute log path not allowed: %s", path)
+		}
+	}
 
-	// Set log level
-	err := level.UnmarshalText([]byte(config.Config.Log.Level))
+	return nil
+}
+
+// Logger wraps zerolog with enhanced functionality
+type Logger struct {
+	logger  zerolog.Logger
+	level   zerolog.Level
+	closers []io.Closer
+	mu      sync.RWMutex
+}
+
+// LoggerOption allows for functional configuration
+type LoggerOption func(*Logger) error
+
+// Config represents logger configuration
+type Config struct {
+	Level        string
+	Location     string
+	AppName      string
+	EnableCaller bool
+	CallerDepth  int
+}
+
+// NewLogger creates a new Logger instance with options
+func NewLogger(opts ...LoggerOption) (*Logger, error) {
+	l := &Logger{
+		level:   zerolog.InfoLevel,
+		closers: make([]io.Closer, 0),
+		mu:      sync.RWMutex{},
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		if err := opt(l); err != nil {
+			return nil, fmt.Errorf("failed to apply logger option: %w", err)
+		}
+	}
+
+	return l, nil
+}
+
+// WithConfig configures logger from config package
+func WithConfig() LoggerOption {
+	return func(l *Logger) error {
+		cfg := config.Data
+		if cfg == nil {
+			return fmt.Errorf("config data is nil")
+		}
+
+		return WithConfigStruct(Config{
+			Level:        cfg.Log.Level,
+			Location:     cfg.Log.Location,
+			AppName:      cfg.App.Name,
+			EnableCaller: true,
+			CallerDepth:  defaultCallerDepth,
+		})(l)
+	}
+}
+
+// WithConfigStruct configures logger from Config struct
+func WithConfigStruct(cfg Config) LoggerOption {
+	return func(l *Logger) error {
+		// Parse log level
+		if cfg.Level != "" {
+			level, err := zerolog.ParseLevel(cfg.Level)
+			if err != nil {
+				return fmt.Errorf("invalid log level %q: %w", cfg.Level, err)
+			}
+			l.level = level
+		}
+
+		// Create writers
+		writers := make([]io.Writer, 0, 2)
+
+		// Console writer
+		consoleWriter := zerolog.ConsoleWriter{
+			Out:        os.Stdout,
+			TimeFormat: time.RFC3339,
+		}
+		writers = append(writers, consoleWriter)
+
+		// File writer (if specified)
+		if cfg.Location != "" {
+			if err := validateLogPath(cfg.Location); err != nil {
+				return fmt.Errorf("invalid log file path: %w", err)
+			}
+
+			fileWriter, err := os.OpenFile(cfg.Location, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+			if err != nil {
+				return fmt.Errorf("failed to open log file %q: %w", cfg.Location, err)
+			}
+			writers = append(writers, fileWriter)
+			l.closers = append(l.closers, fileWriter)
+		}
+
+		// Create multi-writer
+		multiWriter := zerolog.MultiLevelWriter(writers...)
+
+		// Build logger context
+		loggerCtx := zerolog.New(multiWriter).With().Timestamp()
+
+		if cfg.AppName != "" {
+			loggerCtx = loggerCtx.Str("app", cfg.AppName)
+		}
+
+		if cfg.EnableCaller {
+			depth := cfg.CallerDepth
+			if depth == 0 {
+				depth = defaultCallerDepth
+			}
+			loggerCtx = loggerCtx.CallerWithSkipFrameCount(depth)
+		}
+
+		l.logger = loggerCtx.Logger().Level(l.level)
+		zerolog.SetGlobalLevel(l.level)
+
+		return nil
+	}
+}
+
+// WithLevel sets the log level
+func WithLevel(level zerolog.Level) LoggerOption {
+	return func(l *Logger) error {
+		l.level = level
+		return nil
+	}
+}
+
+// WithFile adds file output
+func WithFile(filename string) LoggerOption {
+	return func(l *Logger) error {
+		// Validate filename to prevent directory traversal and other security issues
+		if err := validateLogPath(filename); err != nil {
+			return fmt.Errorf("invalid log file: %w", err)
+		}
+
+		// #nosec G304 - File path is validated by validateLogPath function above
+		file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return fmt.Errorf("failed to open log file: %w", err)
+		}
+		l.closers = append(l.closers, file)
+		return nil
+	}
+}
+
+// Close closes all file handles
+func (l *Logger) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var errs []error
+	for _, closer := range l.closers {
+		if err := closer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to close %d resources: %v", len(errs), errs)
+	}
+	return nil
+}
+
+// enrichLogger adds context information to the logger
+func (l *Logger) enrichLogger(ctx context.Context) zerolog.Logger {
+	l.mu.RLock()
+	logger := l.logger
+	l.mu.RUnlock()
+
+	// Add OpenTelemetry trace information
+	if span := trace.SpanFromContext(ctx); span != nil {
+		spanCtx := span.SpanContext()
+		if spanCtx.IsValid() {
+			logger = logger.With().
+				Str(TraceIDKey, spanCtx.TraceID().String()).
+				Str(SpanIDKey, spanCtx.SpanID().String()).
+				Logger()
+		}
+	}
+
+	if pc, file, line, ok := runtime.Caller(4); ok {
+		logger = logger.With().
+			Str(CallerFileKey, file).
+			Str(CallerFuncKey, runtime.FuncForPC(pc).Name()).
+			Int(CallerLineKey, line).
+			Logger()
+
+		return logger
+	}
+
+	return logger
+}
+
+// Debug logs a debug message
+func (l *Logger) Debug(ctx context.Context, msg string, fields ...interface{}) {
+	if l.level > zerolog.DebugLevel {
+		return
+	}
+
+	event := l.enrichLogger(ctx)
+	l.logWithFields(event.Debug(), msg, fields...)
+}
+
+// Info logs an info message
+func (l *Logger) Info(ctx context.Context, msg string, fields ...interface{}) {
+	if l.level > zerolog.InfoLevel {
+		return
+	}
+
+	event := l.enrichLogger(ctx)
+	l.logWithFields(event.Info(), msg, fields...)
+}
+
+// Warn logs a warning message
+func (l *Logger) Warn(ctx context.Context, msg string, fields ...interface{}) {
+	if l.level > zerolog.WarnLevel {
+		return
+	}
+
+	event := l.enrichLogger(ctx)
+	l.logWithFields(event.Warn(), msg, fields...)
+}
+
+// Error logs an error message
+func (l *Logger) Error(ctx context.Context, err error, msg string, fields ...interface{}) {
+	if l.level > zerolog.ErrorLevel {
+		return
+	}
+
+	logger := l.enrichLogger(ctx)
+	event := logger.Error()
 	if err != nil {
-		level = zapcore.InfoLevel
+		event = event.Err(err)
 	}
-
-	core := zapcore.NewCore(
-		zapcore.NewJSONEncoder(zapConfig),
-		zapcore.AddSync(fileWriter),
-		level,
-	)
-
-	// Create logger
-	logger := zap.New(core)
-	loggerInstance = NewLogger(logger)
+	l.logWithFields(event, msg, fields...)
 }
 
-func addTraceEntries(ctx context.Context, logger *zap.Logger) *zap.Logger {
-	sc := trace.SpanContextFromContext(ctx)
-	newLogger := logger.With(
-		zap.String(TraceIdKey, sc.TraceID().String()),
-		zap.String(SpanIdKey, sc.SpanID().String()),
-	)
+// Fatal logs a fatal message and exits
+func (l *Logger) Fatal(ctx context.Context, err error, msg string, fields ...interface{}) {
+	if l.level > zerolog.FatalLevel {
+		return
+	}
+
+	logger := l.enrichLogger(ctx)
+	event := logger.Fatal()
+	if err != nil {
+		event = event.Err(err)
+	}
+	l.logWithFields(event, msg, fields...)
+}
+
+// logWithFields handles structured logging with key-value pairs
+func (l *Logger) logWithFields(event *zerolog.Event, msg string, fields ...interface{}) {
+	// Handle key-value pairs
+	for i := 0; i < len(fields); i += 2 {
+		if i+1 < len(fields) {
+			key, ok := fields[i].(string)
+			if ok {
+				event = event.Interface(key, fields[i+1])
+			}
+		}
+	}
+
+	event.Msg(msg)
+}
+
+// WithFields adds structured fields to the logger
+func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
+	l.mu.RLock()
+	baseLogger := l.logger
+	l.mu.RUnlock()
+
+	ctx := baseLogger.With()
+	for k, v := range fields {
+		ctx = ctx.Interface(k, v)
+	}
+
+	newLogger := &Logger{
+		logger:  ctx.Logger(),
+		level:   l.level,
+		closers: l.closers, // Share closers, don't duplicate
+		mu:      sync.RWMutex{},
+	}
+
 	return newLogger
 }
 
-func addCallerEntries(logger *zap.Logger) *zap.Logger {
-	if pc, file, line, ok := runtime.Caller(4); ok {
-		newLogger := logger.With(
-			zap.String(CallerFileKey, file),
-			zap.String(CallerFuncKey, runtime.FuncForPC(pc).Name()),
-			zap.Int(CallerLineKey, line),
-		)
+// GetDefault returns the default logger instance
+func GetDefault() *Logger {
+	once.Do(func() {
+		logger, err := NewLogger(WithConfig())
+		if err != nil {
+			// Fallback to basic logger
+			logger, _ = NewLogger(
+				WithLevel(zerolog.InfoLevel),
+				WithConfigStruct(Config{
+					AppName:      "unknown",
+					EnableCaller: true,
+					CallerDepth:  defaultCallerDepth,
+				}),
+			)
+		}
+		defaultLogger = logger
+	})
 
-		return newLogger
+	mu.RLock()
+	defer mu.RUnlock()
+	return defaultLogger
+}
+
+// SetDefault sets the default logger instance
+func SetDefault(logger *Logger) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if defaultLogger != nil {
+		if err := defaultLogger.Close(); err != nil {
+			// Log the error but don't panic since this is a cleanup operation
+			// Use standard log package as fallback since we're replacing the logger
+			fmt.Fprintf(os.Stderr, "Warning: failed to close previous default logger: %v\n", err)
+		}
 	}
-	return logger
+	defaultLogger = logger
 }
 
-// StdEntries Return entries with trace ID entry from span context,
-// span ID entry from span context, and
-// span parent ID entry from context
-func stdEntries(ctx context.Context, logger *zap.Logger) *zap.Logger {
-	logger = addTraceEntries(ctx, logger)
-	logger = addCallerEntries(logger)
-	return logger
+// Package-level convenience functions
+
+// Debug logs a debug message using the default logger
+func Debug(ctx context.Context, msg string, fields ...interface{}) {
+	GetDefault().Debug(ctx, msg, fields...)
 }
 
-func (l *logger) GetLevel() zapcore.Level {
-	return level
+// Info logs an info message using the default logger
+func Info(ctx context.Context, msg string, fields ...interface{}) {
+	GetDefault().Info(ctx, msg, fields...)
 }
 
-func GetLevel() zapcore.Level {
-	return loggerInstance.GetLevel()
+// Warn logs a warning message using the default logger
+func Warn(ctx context.Context, msg string, fields ...interface{}) {
+	GetDefault().Warn(ctx, msg, fields...)
 }
 
-func (l *logger) GetZapLogger() *zap.Logger {
-	return l.log
+// Error logs an error message using the default logger
+func Error(ctx context.Context, err error, msg string, fields ...interface{}) {
+	GetDefault().Error(ctx, err, msg, fields...)
 }
 
-func GetZapLogger() *zap.Logger {
-	return loggerInstance.GetZapLogger()
-}
-
-func (l *logger) Info(ctx context.Context, msg string, args ...zap.Field) {
-	utility.PrintInfo(fmt.Sprint(msg))
-	stdEntries(ctx, l.log).Info(msg, args...)
-}
-
-func Info(ctx context.Context, msg string, args ...zap.Field) {
-	loggerInstance.Info(ctx, msg, args...)
-}
-
-func (l *logger) Warn(ctx context.Context, msg string, args ...zap.Field) {
-	utility.PrintWarning(fmt.Sprint(msg))
-	stdEntries(ctx, l.log).Warn(msg, args...)
-}
-
-func Warn(ctx context.Context, msg string, args ...zap.Field) {
-	loggerInstance.Warn(ctx, msg, args...)
-}
-
-func (l *logger) Error(ctx context.Context, err error, args ...zap.Field) {
-	span := trace.SpanFromContext(ctx)
-	if span != nil {
-		span.RecordError(err)
-	}
-
-	utility.PrintError(err.Error())
-
-	args = append(args, zap.Error(err))
-
-	stdEntries(ctx, l.log).Error(err.Error(), args...)
-}
-
-func Error(ctx context.Context, err error, msg ...string) {
-	var fields []zap.Field
-
-	for _, m := range msg {
-		fields = append(fields, zap.String("message", m))
-	}
-
-	loggerInstance.Error(ctx, err, fields...)
-}
-
-func (l *logger) Fatal(ctx context.Context, err error, args ...zap.Field) {
-	span := trace.SpanFromContext(ctx)
-	if span != nil {
-		span.RecordError(err)
-	}
-
-	args = append(args, zap.Error(err))
-
-	stdEntries(ctx, l.log).Fatal(err.Error(), args...)
-}
-
-func Fatal(ctx context.Context, err error, msg ...string) {
-	var fields []zap.Field
-
-	for _, m := range msg {
-		fields = append(fields, zap.String("message", m))
-	}
-
-	loggerInstance.Fatal(ctx, err, fields...)
-}
-
-func (l *logger) Panic(ctx context.Context, err error, args ...zap.Field) {
-	span := trace.SpanFromContext(ctx)
-	if span != nil {
-		span.RecordError(err)
-	}
-
-	utility.PrintError(err.Error())
-
-	args = append(args, zap.Error(err))
-
-	stdEntries(ctx, l.log).Panic(err.Error(), args...)
-}
-
-func Panic(ctx context.Context, err error, msg ...string) {
-	var fields []zap.Field
-
-	for _, m := range msg {
-		fields = append(fields, zap.String("message", m))
-	}
-
-	loggerInstance.Panic(ctx, err, fields...)
+// Fatal logs a fatal message using the default logger
+func Fatal(ctx context.Context, err error, msg string, fields ...interface{}) {
+	GetDefault().Fatal(ctx, err, msg, fields...)
 }

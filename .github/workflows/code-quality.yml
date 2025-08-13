@@ -1,0 +1,266 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ feat/* ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run weekly quality checks
+    - cron: '0 8 * * 0'
+
+jobs:
+  # Job 1: Static analysis
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Run staticcheck
+      uses: dominikh/staticcheck-action@v1.3.0
+      with:
+        version: "2024.1.1"
+
+    - name: Run ineffassign
+      run: |
+        go install github.com/gordonklaus/ineffassign@latest
+        ineffassign ./...
+
+    - name: Run misspell
+      run: |
+        go install github.com/client9/misspell/cmd/misspell@latest
+        find . -name '*.go' | xargs misspell -error
+
+  # Job 2: Code complexity analysis
+  complexity:
+    name: Code Complexity
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Install gocyclo
+      run: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+
+    - name: Check cyclomatic complexity
+      run: |
+        # Allow complexity up to 10
+        gocyclo -over 10 .
+        if [ $? -eq 0 ]; then
+          echo "✅ All functions have acceptable complexity"
+        else
+          echo "⚠️ Some functions have high complexity - consider refactoring"
+          exit 1
+        fi
+
+    - name: Install gocognit
+      run: go install github.com/uudashr/gocognit/cmd/gocognit@latest
+
+    - name: Check cognitive complexity
+      run: |
+        # Allow cognitive complexity up to 20
+        gocognit -over 20 .
+        if [ $? -eq 0 ]; then
+          echo "✅ All functions have acceptable cognitive complexity"
+        else
+          echo "⚠️ Some functions have high cognitive complexity"
+          exit 1
+        fi
+
+  # Job 3: Code duplication detection
+  duplication:
+    name: Code Duplication
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Install dupl
+      run: go install github.com/mibk/dupl@latest
+
+    - name: Check for code duplication
+      run: |
+        dupl -threshold 50 .
+        if [ $? -eq 0 ]; then
+          echo "✅ No significant code duplication detected"
+        else
+          echo "⚠️ Code duplication detected - consider refactoring"
+        fi
+
+  # Job 4: Dependency analysis
+  dependencies:
+    name: Dependency Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Analyze dependencies
+      run: |
+        echo "## Dependency Analysis" > dependency_report.md
+        echo "" >> dependency_report.md
+        
+        echo "### Direct Dependencies:" >> dependency_report.md
+        go list -m -f '{{if not .Indirect}}{{.Path}} {{.Version}}{{end}}' all | sort >> dependency_report.md
+        
+        echo "" >> dependency_report.md
+        echo "### All Dependencies:" >> dependency_report.md
+        go list -m all | wc -l | xargs echo "Total dependencies:" >> dependency_report.md
+
+    - name: Check for unused dependencies
+      run: |
+        go install github.com/Clement-Jean/go-cleanarch@latest
+        go-cleanarch
+
+  # Job 5: Performance analysis
+  performance:
+    name: Performance Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Run benchmarks
+      run: |
+        go test -bench=. -benchmem -count=3 ./... > benchmark_results.txt
+        cat benchmark_results.txt
+
+    - name: Performance regression check
+      run: |
+        # Install benchstat for comparing benchmark results
+        go install golang.org/x/perf/cmd/benchstat@latest
+        
+        # Note: In a real setup, you'd compare with previous results
+        echo "Benchmark results generated - manual review recommended"
+
+  # Job 6: Documentation quality
+  docs-quality:
+    name: Documentation Quality
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Check documentation coverage
+      run: |
+        # Check that all exported functions have documentation
+        undocumented=$(go doc -all . | grep -c "^func [A-Z]" || true)
+        documented=$(go doc -all . | grep -c "^func [A-Z].*\n.*\/\/" || true)
+        
+        echo "Exported functions: $undocumented"
+        echo "Documented functions: $documented"
+        
+        if [ $undocumented -gt 0 ] && [ $documented -lt $undocumented ]; then
+          echo "⚠️ Some exported functions lack documentation"
+        else
+          echo "✅ All exported functions are documented"
+        fi
+
+    - name: Check README quality
+      run: |
+        if [ ! -f README.md ]; then
+          echo "❌ README.md not found"
+          exit 1
+        fi
+        
+        # Check README has minimum content
+        word_count=$(wc -w < README.md)
+        if [ $word_count -lt 50 ]; then
+          echo "⚠️ README.md seems too short (${word_count} words)"
+        else
+          echo "✅ README.md has adequate content"
+        fi
+
+  # Job 7: License and legal compliance
+  legal:
+    name: Legal Compliance
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check license
+      run: |
+        if [ ! -f LICENSE ]; then
+          echo "⚠️ LICENSE file not found"
+        else
+          echo "✅ LICENSE file exists"
+        fi
+
+    - name: Check dependency licenses
+      run: |
+        go install github.com/google/go-licenses@latest
+        go-licenses check ./...
+
+  # Job 8: Generate quality report
+  quality-report:
+    name: Generate Quality Report
+    runs-on: ubuntu-latest
+    needs: [static-analysis, complexity, duplication, dependencies, performance, docs-quality, legal]
+    if: always()
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Generate quality summary
+      run: |
+        echo "# Code Quality Report" > quality_report.md
+        echo "" >> quality_report.md
+        echo "Generated on: $(date)" >> quality_report.md
+        echo "" >> quality_report.md
+        
+        echo "## Job Results:" >> quality_report.md
+        echo "- Static Analysis: ${{ needs.static-analysis.result }}" >> quality_report.md
+        echo "- Complexity: ${{ needs.complexity.result }}" >> quality_report.md
+        echo "- Duplication: ${{ needs.duplication.result }}" >> quality_report.md
+        echo "- Dependencies: ${{ needs.dependencies.result }}" >> quality_report.md
+        echo "- Performance: ${{ needs.performance.result }}" >> quality_report.md
+        echo "- Documentation: ${{ needs.docs-quality.result }}" >> quality_report.md
+        echo "- Legal: ${{ needs.legal.result }}" >> quality_report.md
+
+    - name: Upload quality report
+      uses: actions/upload-artifact@v4
+      with:
+        name: quality-report
+        path: quality_report.md

@@ -6,197 +6,281 @@ import (
 	"fmt"
 	"time"
 
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 	gormLogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/utils"
 )
 
-// Logger logger for gorm2
-type ZapGormLogger struct {
-	log Logger
-	gormLogger.Config
-	customFields []func(ctx context.Context) zap.Field
+// ZerologGormLogger integrates GORM with our Zerolog-based logger
+type ZerologGormLogger struct {
+	logger       *Logger
+	config       gormLogger.Config
+	customFields []func(ctx context.Context) map[string]interface{}
 }
 
-// Option logger/recover option
-type Option func(l *ZapGormLogger)
+// GormOption configures the GORM logger
+type GormOption func(l *ZerologGormLogger)
 
-// WithCustomFields optional custom field
-func WithCustomFields(fields ...func(ctx context.Context) zap.Field) Option {
-	return func(l *ZapGormLogger) {
+// WithCustomFields adds custom fields to log entries
+func WithCustomFields(fields ...func(ctx context.Context) map[string]interface{}) GormOption {
+	return func(l *ZerologGormLogger) {
 		l.customFields = fields
 	}
 }
 
-// WithConfig optional custom logger.Config
-func WithConfig(cfg gormLogger.Config) Option {
-	return func(l *ZapGormLogger) {
-		l.Config = cfg
+// WithSlowThreshold sets the slow query threshold
+func WithSlowThreshold(threshold time.Duration) GormOption {
+	return func(l *ZerologGormLogger) {
+		l.config.SlowThreshold = threshold
 	}
 }
 
-// New logger form gorm2
-func New(opts ...Option) gormLogger.Interface {
-	l := &ZapGormLogger{
-		log: NewLogger(GetZapLogger()),
-		Config: gormLogger.Config{
+// WithLogLevel sets the GORM log level
+func WithLogLevel(level gormLogger.LogLevel) GormOption {
+	return func(l *ZerologGormLogger) {
+		l.config.LogLevel = level
+	}
+}
+
+// WithIgnoreRecordNotFoundError configures whether to ignore record not found errors
+func WithIgnoreRecordNotFoundError(ignore bool) GormOption {
+	return func(l *ZerologGormLogger) {
+		l.config.IgnoreRecordNotFoundError = ignore
+	}
+}
+
+// WithParameterizedQueries enables/disables parameterized query logging
+func WithParameterizedQueries(enabled bool) GormOption {
+	return func(l *ZerologGormLogger) {
+		l.config.ParameterizedQueries = enabled
+	}
+}
+
+// NewGormLogger creates a new GORM logger integrated with Zerolog
+func NewGormLogger(opts ...GormOption) gormLogger.Interface {
+	l := &ZerologGormLogger{
+		logger: GetDefault(),
+		config: gormLogger.Config{
 			SlowThreshold:             200 * time.Millisecond,
 			Colorful:                  false,
 			IgnoreRecordNotFoundError: false,
+			ParameterizedQueries:      false,
 			LogLevel:                  gormLogger.Info,
 		},
+		customFields: make([]func(ctx context.Context) map[string]interface{}, 0),
 	}
+
 	for _, opt := range opts {
 		opt(l)
 	}
+
 	return l
 }
 
-// LogMode log mode
-func (l *ZapGormLogger) LogMode(level gormLogger.LogLevel) gormLogger.Interface {
+// NewGormLoggerWithLogger creates a GORM logger with a specific logger instance
+func NewGormLoggerWithLogger(logger *Logger, opts ...GormOption) gormLogger.Interface {
+	l := &ZerologGormLogger{
+		logger: logger,
+		config: gormLogger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			Colorful:                  false,
+			IgnoreRecordNotFoundError: false,
+			ParameterizedQueries:      false,
+			LogLevel:                  gormLogger.Info,
+		},
+		customFields: make([]func(ctx context.Context) map[string]interface{}, 0),
+	}
+
+	for _, opt := range opts {
+		opt(l)
+	}
+
+	return l
+}
+
+// LogMode sets the log level and returns a new logger instance
+func (l *ZerologGormLogger) LogMode(level gormLogger.LogLevel) gormLogger.Interface {
 	newLogger := *l
-	newLogger.LogLevel = level
+	newLogger.config.LogLevel = level
 	return &newLogger
 }
 
-// Info print info
-func (l ZapGormLogger) Info(ctx context.Context, msg string, args ...interface{}) {
-	if l.LogLevel >= gormLogger.Info {
-		var fields []zap.Field
-		for _, field := range args {
-			switch v := field.(type) {
-			case zap.Field:
-				fields = append(fields, v)
-			default:
-				fields = append(fields, zap.Any("extra", v))
-			}
-		}
-
-		l.log.Info(ctx, msg, fields...)
-	}
-}
-
-// Warn print warn messages
-func (l ZapGormLogger) Warn(ctx context.Context, msg string, args ...interface{}) {
-	if l.LogLevel >= gormLogger.Warn {
-		var fields []zap.Field
-		for _, field := range args {
-			switch v := field.(type) {
-			case zap.Field:
-				fields = append(fields, v)
-			default:
-				fields = append(fields, zap.Any("extra", v))
-			}
-		}
-
-		l.log.Warn(ctx, msg, fields...)
-	}
-}
-
-// Error print error messages
-func (l ZapGormLogger) Error(ctx context.Context, msg string, args ...interface{}) {
-	if l.LogLevel >= gormLogger.Error {
-		var fields []zap.Field
-		for _, field := range args {
-			switch v := field.(type) {
-			case zap.Field:
-				fields = append(fields, v)
-			default:
-				fields = append(fields, zap.Any("extra", v))
-			}
-		}
-
-		var err error
-		if msg != "" {
-			err = errors.New(msg)
-		}
-
-		l.log.Error(ctx, err, fields...)
-	}
-}
-
-// Trace print sql message
-func (l ZapGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
-	if l.LogLevel <= gormLogger.Silent {
+// Info logs informational messages
+func (l *ZerologGormLogger) Info(ctx context.Context, msg string, args ...interface{}) {
+	if l.config.LogLevel < gormLogger.Info {
 		return
 	}
 
-	fields := make([]zap.Field, 0, 6+len(l.customFields))
-	end := time.Now()
-	latency := end.Sub(begin)
+	fields := l.buildFields(ctx, args...)
+	l.logger.Info(ctx, msg, fields...)
+}
+
+// Warn logs warning messages
+func (l *ZerologGormLogger) Warn(ctx context.Context, msg string, args ...interface{}) {
+	if l.config.LogLevel < gormLogger.Warn {
+		return
+	}
+
+	fields := l.buildFields(ctx, args...)
+	l.logger.Warn(ctx, msg, fields...)
+}
+
+// Error logs error messages
+func (l *ZerologGormLogger) Error(ctx context.Context, msg string, args ...interface{}) {
+	if l.config.LogLevel < gormLogger.Error {
+		return
+	}
+
+	fields := l.buildFields(ctx, args...)
+
+	var err error
+	if msg != "" {
+		err = errors.New(msg)
+	}
+
+	l.logger.Error(ctx, err, msg, fields...)
+}
+
+// Trace logs SQL execution traces
+func (l *ZerologGormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	if l.config.LogLevel <= gormLogger.Silent {
+		return
+	}
+
 	elapsed := time.Since(begin)
 	sql, rows := fc()
 
+	// Build log fields
+	fields := make([]interface{}, 0, 12+len(l.customFields)*2)
+
+	// Add custom fields
 	for _, customField := range l.customFields {
-		fields = append(fields, customField(ctx))
+		if fieldMap := customField(ctx); fieldMap != nil {
+			for k, v := range fieldMap {
+				fields = append(fields, k, v)
+			}
+		}
 	}
 
-	if err != nil {
-		fields = append(fields, zap.Error(err))
-	}
-
+	// Add standard fields
 	fields = append(fields,
-		zap.String("file", utils.FileWithLineNum()),
-		zap.Duration("latency", latency),
+		"file", utils.FileWithLineNum(),
+		"elapsed", elapsed,
+		"latency", elapsed.String(),
 	)
 
 	if rows == -1 {
-		fields = append(fields, zap.String("rows", "-"))
+		fields = append(fields, "rows", "-")
 	} else {
-		fields = append(fields, zap.Int64("rows", rows))
+		fields = append(fields, "rows", rows)
 	}
 
-	fields = append(fields, zap.String("sql", sql))
+	fields = append(fields, "sql", sql)
 
-	msg := fmt.Sprintf("[%v] [rows:%v] %s", latency, rows, sql)
-
+	// Determine log level and message
 	switch {
-	case err != nil && l.LogLevel >= gormLogger.Error && (!l.IgnoreRecordNotFoundError || !errors.Is(err, gorm.ErrRecordNotFound)):
-		l.log.Error(ctx, err, fields...)
-	case elapsed > l.SlowThreshold && l.SlowThreshold != 0 && l.LogLevel >= gormLogger.Warn:
-		fields = append(fields,
-			zap.String("slow!!!", fmt.Sprintf("SLOW SQL >= %v", l.SlowThreshold)),
-		)
+	case err != nil && l.config.LogLevel >= gormLogger.Error &&
+		(!l.config.IgnoreRecordNotFoundError || !errors.Is(err, gorm.ErrRecordNotFound)):
 
-		l.log.Warn(ctx, msg, fields...)
-	case l.LogLevel == gormLogger.Info:
-		l.log.Info(ctx, msg, fields...)
+		fields = append(fields, "error", err.Error())
+		msg := fmt.Sprintf("SQL Error [%v] [rows:%v] %s", elapsed, formatRows(rows), sql)
+		l.logger.Error(ctx, err, msg, fields...)
+
+	case elapsed > l.config.SlowThreshold && l.config.SlowThreshold != 0 && l.config.LogLevel >= gormLogger.Warn:
+		fields = append(fields,
+			"slow_query", true,
+			"threshold", l.config.SlowThreshold.String(),
+		)
+		msg := fmt.Sprintf("SLOW SQL [%v] [rows:%v] %s", elapsed, formatRows(rows), sql)
+		l.logger.Warn(ctx, msg, fields...)
+
+	case l.config.LogLevel >= gormLogger.Info:
+		msg := fmt.Sprintf("SQL [%v] [rows:%v] %s", elapsed, formatRows(rows), sql)
+		l.logger.Info(ctx, msg, fields...)
 	}
 }
 
-// Immutable custom immutable field
-// Deprecated: use Any instead
-func Immutable(key string, value interface{}) func(ctx context.Context) zap.Field {
-	return Any(key, value)
+// buildFields converts args to key-value pairs for structured logging
+func (l *ZerologGormLogger) buildFields(ctx context.Context, args ...interface{}) []interface{} {
+	fields := make([]interface{}, 0, len(args)+len(l.customFields)*2)
+
+	// Add custom fields first
+	for _, customField := range l.customFields {
+		if fieldMap := customField(ctx); fieldMap != nil {
+			for k, v := range fieldMap {
+				fields = append(fields, k, v)
+			}
+		}
+	}
+
+	// Handle args as key-value pairs or single values
+	for i := 0; i < len(args); i++ {
+		if i+1 < len(args) {
+			// Try to use as key-value pair
+			if key, ok := args[i].(string); ok {
+				fields = append(fields, key, args[i+1])
+				i++ // Skip next item as it's the value
+				continue
+			}
+		}
+		// Single value, use generic key
+		fields = append(fields, fmt.Sprintf("arg_%d", i), args[i])
+	}
+
+	return fields
 }
 
-// Any custom immutable any field
-func Any(key string, value interface{}) func(ctx context.Context) zap.Field {
-	field := zap.Any(key, value)
-	return func(ctx context.Context) zap.Field { return field }
+// formatRows formats row count for display
+func formatRows(rows int64) string {
+	if rows == -1 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", rows)
 }
 
-// String custom immutable string field
-func String(key string, value string) func(ctx context.Context) zap.Field {
-	field := zap.String(key, value)
-	return func(ctx context.Context) zap.Field { return field }
+// Helper functions for creating custom fields
+
+// AnyField creates a custom field function for any value
+func AnyField(key string, value interface{}) func(ctx context.Context) map[string]interface{} {
+	return func(ctx context.Context) map[string]interface{} {
+		return map[string]interface{}{key: value}
+	}
 }
 
-// Int64 custom immutable int64 field
-func Int64(key string, value int64) func(ctx context.Context) zap.Field {
-	field := zap.Int64(key, value)
-	return func(ctx context.Context) zap.Field { return field }
+// StringField creates a custom field function for string values
+func StringField(key string, value string) func(ctx context.Context) map[string]interface{} {
+	return func(ctx context.Context) map[string]interface{} {
+		return map[string]interface{}{key: value}
+	}
 }
 
-// Uint64 custom immutable uint64 field
-func Uint64(key string, value uint64) func(ctx context.Context) zap.Field {
-	field := zap.Uint64(key, value)
-	return func(ctx context.Context) zap.Field { return field }
+// IntField creates a custom field function for integer values
+func IntField(key string, value int64) func(ctx context.Context) map[string]interface{} {
+	return func(ctx context.Context) map[string]interface{} {
+		return map[string]interface{}{key: value}
+	}
 }
 
-// Float64 custom immutable float32 field
-func Float64(key string, value float64) func(ctx context.Context) zap.Field {
-	field := zap.Float64(key, value)
-	return func(ctx context.Context) zap.Field { return field }
+// FloatField creates a custom field function for float values
+func FloatField(key string, value float64) func(ctx context.Context) map[string]interface{} {
+	return func(ctx context.Context) map[string]interface{} {
+		return map[string]interface{}{key: value}
+	}
+}
+
+// DurationField creates a custom field function for duration values
+func DurationField(key string, value time.Duration) func(ctx context.Context) map[string]interface{} {
+	return func(ctx context.Context) map[string]interface{} {
+		return map[string]interface{}{key: value.String()}
+	}
+}
+
+// ContextField creates a custom field function that extracts value from context
+func ContextField(key string, contextKey interface{}) func(ctx context.Context) map[string]interface{} {
+	return func(ctx context.Context) map[string]interface{} {
+		if value := ctx.Value(contextKey); value != nil {
+			return map[string]interface{}{key: value}
+		}
+		return nil
+	}
 }

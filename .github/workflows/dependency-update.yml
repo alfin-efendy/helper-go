@@ -1,0 +1,152 @@
+name: Dependency Updates
+
+on:
+  schedule:
+    # Run weekly on Mondays at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Update dependencies
+      id: update
+      run: |
+        echo "## Dependency Updates" > update_summary.md
+        echo "" >> update_summary.md
+        
+        # Get current module versions
+        go list -mod=readonly -m all > before.txt
+        
+        # Update dependencies
+        go get -u ./...
+        go mod tidy
+        
+        # Get updated module versions
+        go list -m all > after.txt
+        
+        # Check if there are any changes
+        if ! cmp -s before.txt after.txt; then
+          echo "has_updates=true" >> $GITHUB_OUTPUT
+          
+          # Generate update summary
+          echo "### Updated modules:" >> update_summary.md
+          echo "" >> update_summary.md
+          
+          # Compare versions and show what changed
+          while IFS= read -r line; do
+            module=$(echo "$line" | cut -d' ' -f1)
+            new_version=$(echo "$line" | cut -d' ' -f2-)
+            old_version=$(grep "^$module " before.txt | cut -d' ' -f2- || echo "new")
+            
+            if [ "$old_version" != "$new_version" ] && [ "$old_version" != "new" ]; then
+              echo "- \`$module\`: $old_version → $new_version" >> update_summary.md
+            elif [ "$old_version" = "new" ]; then
+              echo "- \`$module\`: **new** → $new_version" >> update_summary.md
+            fi
+          done < after.txt
+          
+          echo "" >> update_summary.md
+          echo "### Testing Status" >> update_summary.md
+          echo "" >> update_summary.md
+          
+          # Run tests to ensure updates don't break anything
+          if go test ./...; then
+            echo "✅ All tests pass with updated dependencies" >> update_summary.md
+            echo "tests_pass=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Some tests fail with updated dependencies" >> update_summary.md
+            echo "tests_pass=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "has_updates=false" >> $GITHUB_OUTPUT
+          echo "No dependency updates available." >> update_summary.md
+        fi
+
+    - name: Run security check
+      if: steps.update.outputs.has_updates == 'true'
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        if govulncheck ./...; then
+          echo "" >> update_summary.md
+          echo "🔒 **Security**: No known vulnerabilities detected" >> update_summary.md
+        else
+          echo "" >> update_summary.md
+          echo "⚠️ **Security**: Potential vulnerabilities detected - please review" >> update_summary.md
+        fi
+
+    - name: Create Pull Request
+      if: steps.update.outputs.has_updates == 'true' && steps.update.outputs.tests_pass == 'true'
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'chore(deps): update Go dependencies'
+        title: 'chore(deps): update Go dependencies'
+        body-path: update_summary.md
+        branch: update-dependencies
+        delete-branch: true
+        labels: |
+          dependencies
+          automated
+        assignees: ${{ github.repository_owner }}
+        reviewers: ${{ github.repository_owner }}
+
+    - name: Comment on failed tests
+      if: steps.update.outputs.has_updates == 'true' && steps.update.outputs.tests_pass == 'false'
+      run: |
+        echo "⚠️ Dependency updates available but tests are failing."
+        echo "Please review the changes manually."
+        cat update_summary.md
+
+  # Job to check for security vulnerabilities
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+
+    - name: Run govulncheck
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
+
+    - name: Check for outdated dependencies
+      run: |
+        go list -u -m all | grep '\['
+
+  # Job to update GitHub Actions
+  update-actions:
+    name: Update GitHub Actions
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Update GitHub Actions
+      uses: actuated-samples/actions-update@main
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
