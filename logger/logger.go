@@ -56,6 +56,7 @@ func validateLogPath(path string) error {
 			"/var/log/",
 			"/tmp/",
 			"/home/",
+			"/var/folders/", // macOS temporary directories
 		}
 		allowed := false
 		for _, prefix := range allowedPrefixes {

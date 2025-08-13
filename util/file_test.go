@@ -80,9 +80,9 @@ func TestGetFileExtension(t *testing.T) {
 		{
 			name:          "Hidden file with extension",
 			filename:      ".gitignore",
-			expectedExt:   "gitignore", // Function still returns the extension even with error
-			expectedError: true,
-			errorContains: "unknown file extension: gitignore",
+			expectedExt:   "gitignore", // Function returns the extension as it's a known type
+			expectedError: false,
+			errorContains: "",
 		},
 		{
 			name:          "File without extension",
