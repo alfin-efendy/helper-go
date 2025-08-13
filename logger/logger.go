@@ -65,7 +65,7 @@ func validateLogPath(path string) error {
 			"C:\\tmp\\",
 			"C:/tmp/",
 		}
-		
+
 		// Add OS-specific temp directory
 		if tempDir := os.TempDir(); tempDir != "" {
 			allowedPrefixes = append(allowedPrefixes, tempDir)
