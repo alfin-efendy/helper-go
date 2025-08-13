@@ -50,13 +50,16 @@ func GetFileExtension(filename string) (extension string, err error) {
 
 func GetDirectoryFile(path string) (directory string, err error) {
 	// Get the directory part of the file path
-	directory = filepath.Dir(filepath.Clean(filepath.ToSlash(path)))
+	directory = filepath.Dir(filepath.Clean(path))
 	if directory == "." {
 		directory = ""
 	}
 
+	// Normalize to forward slashes for consistent cross-platform behavior
+	directory = filepath.ToSlash(directory)
+
 	// Check if the directory exists
-	if _, err = filepath.Abs(directory); err != nil {
+	if _, err = filepath.Abs(filepath.FromSlash(directory)); err != nil {
 		return
 	}
 

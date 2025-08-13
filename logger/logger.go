@@ -57,12 +57,41 @@ func validateLogPath(path string) error {
 			"/tmp/",
 			"/home/",
 			"/var/folders/", // macOS temporary directories
+			// Windows paths
+			"C:\\Users\\",
+			"C:/Users/",
+			"C:\\temp\\",
+			"C:/temp/",
+			"C:\\tmp\\",
+			"C:/tmp/",
+		}
+		
+		// Add OS-specific temp directory
+		if tempDir := os.TempDir(); tempDir != "" {
+			allowedPrefixes = append(allowedPrefixes, tempDir)
+			// Also add with both slash types for Windows
+			if runtime.GOOS == "windows" {
+				normalizedTemp := strings.ReplaceAll(tempDir, "\\", "/")
+				if normalizedTemp != tempDir {
+					allowedPrefixes = append(allowedPrefixes, normalizedTemp)
+				}
+			}
 		}
 		allowed := false
 		for _, prefix := range allowedPrefixes {
+			// Check both the original path and normalized versions for cross-platform compatibility
 			if strings.HasPrefix(cleanPath, prefix) {
 				allowed = true
 				break
+			}
+			// On Windows, also check with normalized slashes
+			if runtime.GOOS == "windows" {
+				normalizedPath := strings.ReplaceAll(cleanPath, "\\", "/")
+				normalizedPrefix := strings.ReplaceAll(prefix, "\\", "/")
+				if strings.HasPrefix(normalizedPath, normalizedPrefix) {
+					allowed = true
+					break
+				}
 			}
 		}
 		if !allowed {
