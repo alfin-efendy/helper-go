@@ -2,48 +2,35 @@ package app
 
 import (
 	"context"
-	"sync"
 
 	"github.com/alfin-efendy/helper-go/config"
-	"github.com/alfin-efendy/helper-go/database"
 	"github.com/alfin-efendy/helper-go/logger"
 	"github.com/alfin-efendy/helper-go/otel"
-	"github.com/alfin-efendy/helper-go/server/restapi"
-	"github.com/alfin-efendy/helper-go/storage"
 )
 
-var ctx context.Context
+func Start(fn func()) context.Context {
+	var ctx context.Context
 
-func init() {
-	ctx = context.Background()
+	// Initialize configuration
+	ctx, span := otel.Trace(ctx)
+	defer span.End()
 
+	// Load the configuration at application startup
 	config.Load()
-	logger.Init()
-	otel.Init()
-
-	ctx, span := otel.Trace(ctx)
-	defer span.End()
-
-	database.Init(ctx)
-	storage.Init(ctx)
-	restapi.Init(ctx)
-}
-
-func Start(fn func()) {
-	ctx, span := otel.Trace(ctx)
-	defer span.End()
-
-	fn()
-	go restapi.Run(ctx)
-
+	logger, err := logger.NewLogger(
+		logger.WithConfig(),
+	)
+	if err != nil {
+		panic("Failed to initialize logger: " + err.Error())
+	}
 	defer func() {
-		err := otel.Shutdown(ctx)
-		if err != nil {
-			logger.Error(ctx, err)
+		if err := logger.Close(); err != nil {
+			panic("Failed to close logger: " + err.Error())
 		}
 	}()
 
-	group := sync.WaitGroup{}
-	group.Add(1)
-	group.Wait()
+	otel.Init()
+	fn()
+
+	return ctx
 }
