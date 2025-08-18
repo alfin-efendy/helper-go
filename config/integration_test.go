@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/alfin-efendy/helper-go/config/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,8 +28,7 @@ server:
 	require.NoError(t, err)
 	tempFile.Close()
 
-	var result schema.Config
-	err = Unmarshal(tempFile.Name(), &result)
+	err = unmarshal(tempFile.Name())
 	require.NoError(t, err)
 	require.NotNil(t, Data)
 
@@ -58,8 +56,7 @@ app:
 	require.NoError(t, err)
 	tempFile.Close()
 
-	var result schema.Config
-	err = Unmarshal(tempFile.Name(), &result)
+	err = unmarshal(tempFile.Name())
 	require.NoError(t, err)
 	require.NotNil(t, Data)
 
@@ -94,8 +91,7 @@ otel:
 	require.NoError(t, err)
 	tempFile.Close()
 
-	var result schema.Config
-	err = Unmarshal(tempFile.Name(), &result)
+	err = unmarshal(tempFile.Name())
 	require.NoError(t, err)
 	require.NotNil(t, Data)
 
@@ -123,8 +119,7 @@ log:
 	require.NoError(t, err)
 	tempFile.Close()
 
-	var result schema.Config
-	err = Unmarshal(tempFile.Name(), &result)
+	err = unmarshal(tempFile.Name())
 	require.NoError(t, err)
 	require.NotNil(t, Data)
 
@@ -153,8 +148,7 @@ messageBroker:
 	require.NoError(t, err)
 	tempFile.Close()
 
-	var result schema.Config
-	err = Unmarshal(tempFile.Name(), &result)
+	err = unmarshal(tempFile.Name())
 	require.NoError(t, err)
 	require.NotNil(t, Data)
 
@@ -191,8 +185,7 @@ database:
 	require.NoError(t, err)
 	tempFile.Close()
 
-	var result schema.Config
-	err = Unmarshal(tempFile.Name(), &result)
+	err = unmarshal(tempFile.Name())
 	require.NoError(t, err)
 	require.NotNil(t, Data)
 	require.NotNil(t, Data.Database.SQL)

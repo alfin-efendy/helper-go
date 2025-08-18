@@ -33,23 +33,23 @@ Create file `config.yml` on root project.
 
 ```yaml
 app:
-	name: ${APP_NAME}
-	mode: ${APP_MODE} # debug/release/test, for production use release
+  name: ${APP_NAME}
+  mode: ${APP_MODE} # debug/release/test, for production use release
 
 log:
-	level: ${LOG_LEVEL} #debug/info/warn/error/fatal
-	location: ./logs/app.log
+  level: ${LOG_LEVEL} #debug/info/warn/error/fatal
+  location: ./logs/app.log
 
 otel:
-	address: ${OTEL_ADDRESS}
-	timeout: 30
-	trace: true
-	metric: false
+  address: ${OTEL_ADDRESS}
+  timeout: 30
+  trace: true
+  metric: false
 
 server:
-	restApi:
-		host: 0.0.0.0
-		port: 5000
+  restApi:
+    host: 0.0.0.0
+    port: 5000
 
 database:
   sql:
@@ -246,7 +246,7 @@ make ci
 
 ## 📋 Requirements
 
-- Go 1.22 or higher
+- Go 1.25 or higher
 
 ## 📄 License
 
