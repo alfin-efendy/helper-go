@@ -355,8 +355,7 @@ log:
 				configPath = tempFile.Name()
 			}
 
-			var result schema.Config
-			err = Unmarshal(configPath, &result)
+			err = unmarshal(configPath)
 
 			if tt.expectedError {
 				assert.Error(t, err)
@@ -412,13 +411,12 @@ func TestUnmarshalNilConfig(t *testing.T) {
 	require.NoError(t, err)
 	tempFile.Close()
 
-	var result interface{}
-	err = Unmarshal(tempFile.Name(), &result)
+	err = unmarshal(tempFile.Name())
 	// With just a comment, the unmarshal should succeed but Data might be nil or empty
 	// This test mainly verifies the function doesn't panic
 	if err != nil {
 		// It's okay if it errors, just shouldn't panic
-		t.Log("Unmarshal returned error (expected for empty config):", err)
+		t.Log("unmarshal returned error (expected for empty config):", err)
 	}
 }
 
@@ -482,8 +480,7 @@ func TestEnvironmentVariableSubstitution(t *testing.T) {
 			require.NoError(t, err)
 			tempFile.Close()
 
-			var result map[string]interface{}
-			err = Unmarshal(tempFile.Name(), &result)
+			err = unmarshal(tempFile.Name())
 			require.NoError(t, err)
 
 			// Since the function uses global Data, we need to check that instead
@@ -509,8 +506,8 @@ func TestLoadConfigFileNotFound(t *testing.T) {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	// This test checks that Load() will call os.Exit(1) on error
-	// Since we can't easily test os.Exit, we test the underlying Unmarshal function
-	err := Unmarshal("non-existent-file.yml", &Data)
+	// Since we can't easily test os.Exit, we test the underlying unmarshal function
+	err := unmarshal("non-existent-file.yml")
 	assert.Error(t, err)
 }
 
@@ -563,8 +560,7 @@ log:
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Data = nil // Reset for each iteration
-		var config schema.Config
-		err := Unmarshal(tempFile.Name(), &config)
+		err := unmarshal(tempFile.Name())
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -608,8 +604,7 @@ server:
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Data = nil // Reset for each iteration
-		var config schema.Config
-		err := Unmarshal(tempFile.Name(), &config)
+		err := unmarshal(tempFile.Name())
 		if err != nil {
 			b.Fatal(err)
 		}

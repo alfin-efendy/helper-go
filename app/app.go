@@ -8,7 +8,7 @@ import (
 	"github.com/alfin-efendy/helper-go/otel"
 )
 
-func Start(fn func()) context.Context {
+func Start() context.Context {
 	var ctx context.Context
 
 	// Initialize configuration
@@ -30,7 +30,6 @@ func Start(fn func()) context.Context {
 	}()
 
 	otel.Init()
-	fn()
 
 	return ctx
 }
