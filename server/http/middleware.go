@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -293,4 +294,52 @@ func SuccessResponseMiddleware(next http.Handler) http.Handler {
 // ResponseMiddleware combines both error and success response handling
 func ResponseMiddleware(next http.Handler) http.Handler {
 	return ErrorResponseMiddleware(SuccessResponseMiddleware(next))
+}
+
+// QueryParamsMiddleware parses query parameters and sets them in the context
+func QueryParamsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := GetCtx(r)
+
+		// Parse query parameters
+		queryParams := &QueryParams{
+			Filters: make(map[string]string),
+		}
+
+		values := r.URL.Query()
+
+		// Parse pagination parameters
+		if pageStr := values.Get("page"); pageStr != "" {
+			if page, err := strconv.Atoi(pageStr); err == nil {
+				queryParams.Page = page
+			}
+		}
+
+		if limitStr := values.Get("limit"); limitStr != "" {
+			if limit, err := strconv.Atoi(limitStr); err == nil {
+				queryParams.Limit = limit
+			}
+		}
+
+		// Parse search parameter
+		queryParams.Search = values.Get("search")
+
+		// Parse order parameters
+		queryParams.Order = values.Get("order")
+		queryParams.OrderBy = values.Get("order_by")
+
+		// Parse filter parameters (any parameter that starts with "filter_")
+		for key, vals := range values {
+			if strings.HasPrefix(key, "filter_") && len(vals) > 0 {
+				filterKey := strings.TrimPrefix(key, "filter_")
+				queryParams.Filters[filterKey] = vals[0]
+			}
+		}
+
+		// Set query parameters in context
+		ctx.SetQuery(queryParams)
+
+		// Call the next handler
+		next.ServeHTTP(w, r)
+	})
 }

@@ -15,12 +15,73 @@ import (
 
 var validate = validator.New()
 
+// QueryParams represents query parameters for database operations
+type QueryParams struct {
+	Page    int               `json:"page" form:"page"`
+	Limit   int               `json:"limit" form:"limit"`
+	Search  string            `json:"search" form:"search"`
+	Order   string            `json:"order" form:"order"`
+	OrderBy string            `json:"order_by" form:"order_by"`
+	Filters map[string]string `json:"filters" form:"-"`
+}
+
+// GetOrderClause returns the order clause for database query
+func (q *QueryParams) GetOrderClause() string {
+	if q.OrderBy == "" {
+		q.OrderBy = "id"
+	}
+
+	if q.Order == "" {
+		q.Order = "desc"
+	}
+
+	// Validate order direction
+	if q.Order != "asc" && q.Order != "desc" {
+		q.Order = "desc"
+	}
+
+	return q.OrderBy + " " + q.Order
+}
+
+// GetPageSize returns the page size with default and max limits
+func (q *QueryParams) GetPageSize() int {
+	if q.Limit <= 0 {
+		return 10 // default page size
+	}
+	if q.Limit > 100 {
+		return 100 // max page size
+	}
+	return q.Limit
+}
+
+// GetPageNumber returns the page number with default
+func (q *QueryParams) GetPageNumber() int {
+	if q.Page <= 0 {
+		return 1
+	}
+	return q.Page
+}
+
+// GetSearch returns the search term
+func (q *QueryParams) GetSearch() string {
+	return q.Search
+}
+
+// GetFilters returns the filters map
+func (q *QueryParams) GetFilters() map[string]string {
+	if q.Filters == nil {
+		return make(map[string]string)
+	}
+	return q.Filters
+}
+
 type Ctx struct {
 	ResponseWriter http.ResponseWriter
 	Request        *http.Request
 	Errors         []error
 	Data           interface{}
 	Page           *PageResponse
+	Query          *QueryParams
 	written        bool
 }
 
@@ -233,6 +294,19 @@ func (c *Ctx) JSON(status int, obj interface{}) {
 		http.Error(c.ResponseWriter, fmt.Sprintf("failed to encode response: %v", err), http.StatusInternalServerError)
 	}
 	c.written = true
+}
+
+// SetQuery sets the query parameters
+func (c *Ctx) SetQuery(query *QueryParams) {
+	c.Query = query
+}
+
+// GetQuery gets the query parameters
+func (c *Ctx) GetQuery() *QueryParams {
+	if c.Query == nil {
+		return &QueryParams{}
+	}
+	return c.Query
 }
 
 // IsWritten checks if response has been written
