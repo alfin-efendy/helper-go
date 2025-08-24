@@ -135,6 +135,216 @@ func main() {
 }
 ```
 
+### Query Parameters Middleware
+
+This middleware provides automatic parsing and handling of query parameters for pagination, search, filtering, and ordering in HTTP requests. It integrates seamlessly with GORM scopes for database operations.
+
+- **Pagination**: Automatic page and limit handling with defaults and maximum limits
+- **Search**: Full-text search across specified fields
+- **Filtering**: Dynamic filtering with `filter_` prefixed parameters
+- **Ordering**: Sortable results with customizable order direction
+- **GORM Integration**: Ready-to-use scopes for database queries
+
+##### Available Query Parameters
+
+| Parameter         | Description                                 | Example                        | Default      |
+|-------------------|---------------------------------------------|--------------------------------|-------------|
+| `page`            | Page number                                 | `?page=2`                      | 1           |
+| `limit`           | Items per page                              | `?limit=20`                    | 10 (max:100)|
+| `search`          | Search term (LIKE on specified fields)      | `?search=john`                 | -           |
+| `order_by`        | Field to order by                           | `?order_by=name`               | id          |
+| `order`           | Sort direction (`asc` or `desc`)            | `?order=asc`                   | desc        |
+| `filter_[field]`  | Filter by field value                       | `?filter_status=active`        | -           |
+
+##### Example Requests
+
+```bash
+# Basic pagination
+GET /users?page=1&limit=10
+
+# Search with pagination
+GET /users?search=john&page=1&limit=10
+
+# Filtering
+GET /users?filter_status=active&filter_role=admin
+
+# Ordering
+GET /users?order_by=name&order=asc
+
+# Combined query
+GET /users?search=john&filter_status=active&order_by=created_at&order=desc&page=1&limit=20
+```
+
+##### Response Format
+
+```json
+{
+    "message": "Success",
+    "data": [...],
+    "page": {
+        "page": 1,
+        "limit": 10,
+        "total": 25,
+        "total_page": 3
+    }
+}
+```
+
+##### 1. Setting up the Middleware
+
+```go
+func SetupRoutes(db *gorm.DB) http.Handler {
+    mux := http.NewServeMux()
+    
+    // Create middleware chain
+    middlewareChain := func(next http.Handler) http.Handler {
+        return http.NewCtx(                    // Initialize context
+            http.QueryParamsMiddleware(        // Parse query parameters
+                http.LoggingMiddleware(        // Add logging
+                    http.TracingMiddleware(    // Add tracing
+                        http.ResponseMiddleware(next), // Handle responses
+                    ),
+                ),
+            ),
+        )
+    }
+    
+    // Register routes
+    mux.Handle("/users", middlewareChain(UserHandler(db)))
+    
+    return mux
+}
+```
+
+##### 2. Using Query Parameters in Handler, Service, and Repository Layers
+
+This section demonstrates how to separate the usage of query parameters for better maintainability and testability.
+
+###### a. In Handler (Extract query params and call service)
+```go
+import (
+    "github.com/alfin-efendy/helper-go/server/http"
+)
+
+func UserHandler(svc *UserService) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        ctx := http.GetCtx(r)
+        queryParams := ctx.GetQuery()
+
+        // Call service with query params
+        users, total, err := svc.ListUsers(r.Context(), queryParams)
+        if err != nil {
+            ctx.AddError(err)
+            return
+        }
+
+        // Calculate pagination
+        totalPages := int(total) / queryParams.GetPageSize()
+        if int(total)%queryParams.GetPageSize() > 0 {
+            totalPages++
+        }
+
+        ctx.SetData(users)
+        ctx.SetPage(http.PageResponse{
+            Page:      queryParams.GetPageNumber(),
+            Limit:     queryParams.GetPageSize(),
+            Total:     total,
+            TotalPage: totalPages,
+        })
+    }
+}
+```
+
+###### b. In Service (Business logic, call repository)
+```go
+type UserService struct {
+    repo *UserRepository
+}
+
+func (s *UserService) ListUsers(ctx context.Context, queryParams *http.QueryParams) ([]User, int64, error) {
+    return s.repo.FindUsers(ctx, queryParams)
+}
+```
+
+###### c. In Repository (Apply query params to GORM)
+```go
+import (
+    "github.com/alfin-efendy/helper-go/server/http"
+    "github.com/alfin-efendy/helper-go/database/util"
+)
+
+type UserRepository struct {
+    db *gorm.DB
+}
+
+func (r *UserRepository) FindUsers(ctx context.Context, queryParams *http.QueryParams) ([]User, int64, error) {
+    var users []User
+    var total int64
+
+    // Count total records
+    r.db.WithContext(ctx).
+        Model(&User{}).
+        Scopes(util.ApplyQuery(queryParams, User{}, []string{"name", "email"})).
+        Count(&total)
+
+    // Query with all parameters applied
+    err := r.db.WithContext(ctx).
+        Scopes(util.ApplyQuery(queryParams, User{}, []string{"name", "email"})).
+        Find(&users).Error
+    if err != nil {
+        return nil, 0, err
+    }
+    return users, total, nil
+}
+```
+With Table Joins (Repository Layer Example)
+```go
+func (r *UserRepository) FindUsersWithProfile(ctx context.Context, queryParams *http.QueryParams) ([]User, error) {
+    var users []User
+    err := r.db.WithContext(ctx).
+        Table("users").
+        Select("users.*, profiles.bio").
+        Joins("LEFT JOIN profiles ON profiles.user_id = users.id").
+        Scopes(util.ApplyQueryWithTableName(queryParams, "users", []string{"users.name", "users.email"})).
+        Find(&users).Error
+    if err != nil {
+        return nil, err
+    }
+    return users, nil
+}
+```
+
+###### Available Scope Functions
+
+###### util.ApplyQuery
+General purpose scope that applies all query parameters:
+```go
+util.ApplyQuery(queryParams, ModelStruct{}, []string{"field1", "field2"})
+```
+
+###### util.ApplyQueryWithTableName
+For complex queries with joins:
+```go
+util.ApplyQueryWithTableName(queryParams, "table_name", []string{"table.field1", "table.field2"})
+```
+
+###### Individual Scopes
+You can also use individual scopes:
+```go
+// Pagination only
+util.Paginate(page, limit)
+
+// Search only
+util.Search(searchTerm, ModelStruct{})
+util.SearchCustomField(searchTerm, []string{"field1", "field2"})
+```
+
+##### Security Considerations
+
+- Maximum page size is limited to 100 items
+- Field names in filters are escaped to prevent SQL injection
+- Search terms are properly parameterized in SQL queries
+
 ## 📖 Documentation
 
 ### Package Structure
